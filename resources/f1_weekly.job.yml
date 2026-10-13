@@ -1,0 +1,33 @@
+resources:
+  jobs:
+    f1_weekly:
+      name: f1_weekly
+      email_notifications:
+        on_failure:
+          - prn@silverliningit.no
+      schedule:
+        quartz_cron_expression: 54 0 14 ? * Mon
+        timezone_id: Europe/Oslo
+        pause_status: UNPAUSED
+      tasks:
+        - task_key: ingest
+          notebook_task:
+            notebook_path: /Workspace/Users/prn@silverliningit.no/f1-lakehouse/notebooks/ingest_openf1
+            source: WORKSPACE
+          max_retries: 2
+          min_retry_interval_millis: 600000
+          disable_auto_optimization: false
+        - task_key: transform
+          depends_on:
+            - task_key: ingest
+          pipeline_task:
+            pipeline_id: da494f4e-ce36-4d7f-b7c6-00f73fa79e7f
+        - task_key: validate
+          depends_on:
+            - task_key: transform
+          notebook_task:
+            notebook_path: /Workspace/Users/prn@silverliningit.no/f1-lakehouse/notebooks/validate
+            source: WORKSPACE
+      queue:
+        enabled: true
+      performance_target: PERFORMANCE_OPTIMIZED
