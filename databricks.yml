@@ -3,6 +3,7 @@ bundle:
 
 include:
   - resources/f1_pipeline.pipeline.yml
+  - resources/f1_weekly.job.yml
 
 variables:
   schema:
