@@ -16,3 +16,13 @@ targets:
     default: true
     workspace:
       host: https://dbc-d9b08dbc-82b6.cloud.databricks.com
+  prod:
+    mode: production
+    workspace:
+      host: https://dbc-d9b08dbc-82b6.cloud.databricks.com
+      root_path: /Workspace/Users/prn@silverliningit.no/.bundle/${bundle.name}/${bundle.target}
+    variables:
+      schema: pipeline
+    permissions:
+      - user_name: prn@silverliningit.no
+        level: CAN_MANAGE
