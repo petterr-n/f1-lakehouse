@@ -1,0 +1,17 @@
+bundle:
+  name: f1_lakehouse
+
+include:
+  - resources/f1_pipeline.pipeline.yml
+
+variables:
+  schema:
+    description: Schema the pipeline writes its tables to
+    default: pipeline_dev
+
+targets:
+  dev:
+    mode: development
+    default: true
+    workspace:
+      host: https://dbc-d9b08dbc-82b6.cloud.databricks.com

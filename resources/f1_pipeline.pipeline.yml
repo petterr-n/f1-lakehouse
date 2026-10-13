@@ -1,0 +1,14 @@
+resources:
+  pipelines:
+    f1_openf1_pipeline:
+      name: f1_openf1_pipeline
+      catalog: f1
+      schema: ${var.schema}
+      serverless: true
+      libraries:
+        - file:
+            path: ../pipeline/bronze.sql
+        - file:
+            path: ../pipeline/silver.sql
+        - file:
+            path: ../pipeline/gold.sql
