@@ -69,3 +69,54 @@ os.replace(tmp, OUT_FILE)                       # swap in one step: never a half
 
 print(f"Wrote {OUT_FILE}: season {season}, {len(drivers)} drivers, "
       f"{len(constructors)} teams, latest race: {race['meeting_name']}")
+
+# Qualifying: every session, so the site can click through them
+import json, os
+from datetime import datetime, timezone
+
+rows = spark.sql(f"""
+    SELECT *
+    FROM f1.{SCHEMA}.gold_qualifying_results
+    ORDER BY date_start, session_key, position NULLS LAST, driver_number
+""").collect()
+
+sessions = {}
+for r in rows:
+    s = sessions.setdefault(r.session_key, {
+        "session_key": r.session_key,
+        "season": r.season,
+        "location": r.location,
+        "session_name": r.session_name,          # "Qualifying" or "Sprint Qualifying"
+        "date": r.date_start.isoformat(),
+        "results": [],
+    })
+    s["results"].append({
+        "position": r.position,
+        "driver_number": r.driver_number,
+        "driver_id": r.driver_id,
+        "name": r.full_name,
+        "acronym": r.name_acronym,
+        "team": r.team_name,
+        "team_colour": r.team_colour,
+        "q1": r.q1_seconds,
+        "q2": r.q2_seconds,
+        "q3": r.q3_seconds,
+        "stage": r.stage_reached,
+        "dns": r.dns,
+        "dsq": r.dsq,
+    })
+
+payload = {
+    "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    "seasons": sorted({s["season"] for s in sessions.values()}),
+    "sessions": list(sessions.values()),
+}
+
+out = f"/Volumes/f1/{SCHEMA}/exports/site/qualifying.json"
+tmp = out + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(payload, f, ensure_ascii=False)
+os.replace(tmp, out)   # atomic: the site never sees a half-written file
+
+print(f"Wrote {out}: {len(payload['sessions'])} sessions, seasons {payload['seasons']}, "
+      f"{os.path.getsize(out) / 1024:.0f} KB")

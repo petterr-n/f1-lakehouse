@@ -32,6 +32,7 @@ jobs:
         run: |
           mkdir -p site/data
           databricks fs cp dbfs:/Volumes/f1/pipeline/exports/site/f1_site_data.json site/data/ --overwrite
+          databricks fs cp dbfs:/Volumes/f1/pipeline/exports/site/qualifying.json site/data/qualifying.json --overwrite
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
