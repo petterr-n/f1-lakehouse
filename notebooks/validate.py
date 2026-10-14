@@ -97,6 +97,32 @@ checks = {
             HAVING count_if(stage_reached = 'Q3') > 10
         )
     """,
+
+    "Standings after the last round match the season standings": """
+        SELECT COUNT(*) FROM (
+          SELECT b.year, b.driver_id, b.position, b.points
+          FROM f1.pipeline.gold_driver_standings_by_round b
+          WHERE b.round_number = (SELECT MAX(round_number) FROM f1.pipeline.gold_driver_standings_by_round x
+                                  WHERE x.year = b.year)
+          EXCEPT
+          SELECT year, driver_id, position, points FROM f1.pipeline.gold_driver_standings)
+    """,
+
+    "One fastest lap per race/sprint": """
+        SELECT COUNT(*) FROM (
+          SELECT session_key FROM f1.pipeline.gold_race_results
+          GROUP BY session_key HAVING COUNT_IF(has_fastest_lap) <> 1)
+    """,
+
+    "One colour per team per season on the site": """
+        SELECT COUNT(*) FROM (
+          SELECT season, team_name FROM (
+            SELECT season, team_name, team_colour FROM f1.pipeline.gold_race_results
+            UNION ALL
+            SELECT season, team_name, team_colour FROM f1.pipeline.gold_qualifying_results)
+          GROUP BY season, team_name
+          HAVING COUNT(DISTINCT team_colour) <> 1 OR COUNT_IF(team_colour IS NULL) > 0)
+    """,
 }
 
 failures = []

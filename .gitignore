@@ -13,10 +13,7 @@ __pycache__/
 .vscode/
 .DS_Store
 
-# Generated site data
-site/data/
-
-# Web page
+# Web page (data/ is downloaded from the export volume at build time)
 web/node_modules/
 web/dist/
 web/public/data/

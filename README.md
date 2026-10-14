@@ -1,6 +1,6 @@
 # f1-lakehouse
 
-Formula 1 data pipeline on Databricks. Pulls session data from the [OpenF1 API](https://openf1.org), builds bronze/silver/gold tables, and publishes the latest race result and championship standings to a static site once a week.
+Formula 1 data pipeline on Databricks. Pulls session data from the [OpenF1 API](https://openf1.org), builds bronze/silver/gold tables, and publishes race and qualifying results for every weekend, plus the championship standings after each round, to a static site once a week.
 
 Live site: https://petterr-n.github.io/f1-lakehouse/
 
@@ -58,7 +58,7 @@ pipeline/             bronze/silver/gold SQL
 notebooks/            ingest, validate, export
 src/f1_ingest/        ingest logic (unit tested)
 tests/
-site/                 static site
+web/                  static site (Vite + TypeScript)
 .github/workflows/
 ```
 
@@ -70,7 +70,13 @@ databricks bundle deploy -t dev
 databricks bundle run f1_weekly -t dev
 ```
 
-CI runs the tests and validates the bundle on PRs. Merging to `main` deploys to prod. The site is republished every Monday and whenever `site/` changes. Workflows need `DATABRICKS_HOST` and `DATABRICKS_TOKEN` set as repo secrets.
+Site, locally (copy `races.json`, `qualifying.json` and `standings.json` from the export volume into `web/public/data/` first):
+
+```bash
+cd web && npm install && npm run dev
+```
+
+CI runs the tests and validates the bundle on PRs. Merging to `main` deploys to prod. The site is republished every Monday and whenever `web/` changes. Workflows need `DATABRICKS_HOST` and `DATABRICKS_TOKEN` set as repo secrets.
 
 ## Notes
 
