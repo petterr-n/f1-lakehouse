@@ -81,3 +81,32 @@ def test_years_are_parsed_with_spaces():
 def test_years_outside_openf1_range_are_rejected():
     with pytest.raises(ValueError):
         parse_years("2019", NOW)
+
+
+# --- endpoints_for ---------------------------------------------------------
+
+from f1_ingest.planning import endpoints_for, landed_marker_folder
+
+
+def test_race_results_land_in_session_result():
+    folders = dict(endpoints_for({"session_type": "Race"}))
+    assert folders["session_result"] == "session_result"
+    assert "stints" in folders and "pit" in folders
+
+
+def test_qualifying_results_land_in_their_own_folder():
+    folders = dict(endpoints_for({"session_type": "Qualifying"}))
+    assert folders["session_result"] == "session_result_qualifying"
+    assert "stints" not in folders
+
+
+def test_practice_is_not_ingested():
+    with pytest.raises(ValueError):
+        endpoints_for({"session_type": "Practice"})
+
+
+@pytest.mark.parametrize("session_type", ["Race", "Qualifying"])
+def test_race_control_is_fetched_last_as_the_landed_marker(session_type):
+    session = {"session_type": session_type}
+    assert endpoints_for(session)[-1] == ("race_control", "race_control")
+    assert landed_marker_folder(session) == "race_control"

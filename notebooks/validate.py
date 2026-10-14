@@ -79,6 +79,24 @@ checks = {
         JOIN f1.pipeline.gold_dim_session s ON s.session_key = f.session_key
         WHERE s.session_type <> 'Race'
     """,
+
+    "Exactly one pole per qualifying session": """
+        SELECT count(*) FROM (
+            SELECT session_key
+            FROM f1.pipeline.gold_qualifying_results
+            GROUP BY session_key
+            HAVING count_if(position = 1) <> 1
+        )
+    """,
+
+    "At most 10 cars in Q3": """
+        SELECT count(*) FROM (
+            SELECT session_key
+            FROM f1.pipeline.gold_qualifying_results
+            GROUP BY session_key
+            HAVING count_if(stage_reached = 'Q3') > 10
+        )
+    """,
 }
 
 failures = []
