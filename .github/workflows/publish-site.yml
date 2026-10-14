@@ -1,0 +1,46 @@
+name: Publish site
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"        # Mondays 14:00 UTC, after the 14:00 Oslo job has finished
+  workflow_dispatch:            # "Run workflow" button for manual updates
+  push:
+    branches: [main]
+    paths: ["site/**"]          # republish when the page itself changes
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: databricks/setup-cli@main
+
+      - name: Download validated site data
+        run: |
+          mkdir -p site/data
+          databricks fs cp dbfs:/Volumes/f1/pipeline/exports/site/f1_site_data.json site/data/ --overwrite
+        env:
+          DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
