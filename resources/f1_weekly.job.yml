@@ -25,6 +25,14 @@ resources:
             notebook_path: ../notebooks/validate.py
             base_parameters:
               schema: ${var.schema}
+        
+        - task_key: export
+          depends_on:
+            - task_key: validate
+          notebook_task:
+            notebook_path: ../notebooks/export_site_data.py
+            base_parameters:
+              schema: ${var.schema}
 
       schedule:
         quartz_cron_expression: "0 0 14 ? * MON"   # Mondays 14:00

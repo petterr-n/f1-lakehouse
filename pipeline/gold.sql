@@ -194,3 +194,95 @@ LEFT JOIN silver_session_drivers d
   ON  d.session_key   = r.session_key
   AND d.driver_number = r.driver_number
 GROUP BY r.year, d.driver_id;
+
+-- ================= Tables for the public site =================
+
+-- Each team's colour per season, as OpenF1 reports it (latest race wins).
+-- Ordered by date, not session_key: keys aren't in date order.
+CREATE OR REFRESH MATERIALIZED VIEW gold_team_colours
+AS
+SELECT sd.year, sd.team_name,
+       MAX_BY(sd.team_colour, s.date_start) AS team_colour
+FROM silver_session_drivers sd
+JOIN silver_sessions s ON s.session_key = sd.session_key
+GROUP BY sd.year, sd.team_name;
+
+
+CREATE OR REFRESH MATERIALIZED VIEW gold_driver_standings (
+  CONSTRAINT has_driver EXPECT (driver_id IS NOT NULL) ON VIOLATION FAIL UPDATE
+)
+AS
+WITH totals AS (
+  SELECT ds.year, f.driver_id,
+         SUM(f.points)                                         AS points,
+         COUNT_IF(f.position = 1  AND ds.session_name = 'Race') AS wins,
+         COUNT_IF(f.position = 2  AND ds.session_name = 'Race') AS second_places,
+         COUNT_IF(f.position <= 3 AND ds.session_name = 'Race') AS podiums,
+         MAX_BY(f.driver_key, ds.date_start)                   AS latest_driver_key
+  FROM gold_fact_session_result f
+  JOIN gold_dim_session ds ON ds.session_key = f.session_key
+  GROUP BY ds.year, f.driver_id
+)
+SELECT
+  RANK() OVER (PARTITION BY t.year
+               ORDER BY t.points DESC, t.wins DESC, t.second_places DESC) AS position,
+  t.year, t.driver_id,
+  d.first_name, d.last_name, d.name_acronym, d.driver_number,
+  d.team_name, c.team_colour,
+  t.points, t.wins, t.podiums
+FROM totals t
+JOIN gold_dim_driver d       ON d.driver_key = t.latest_driver_key
+LEFT JOIN gold_team_colours c ON c.year = t.year AND c.team_name = d.team_name;
+
+
+CREATE OR REFRESH MATERIALIZED VIEW gold_constructor_standings (
+  CONSTRAINT has_team EXPECT (team_name IS NOT NULL) ON VIOLATION FAIL UPDATE
+)
+AS
+WITH totals AS (
+  SELECT ds.year, d.team_name,
+         SUM(f.points)                                        AS points,
+         COUNT_IF(f.position = 1 AND ds.session_name = 'Race') AS wins,
+         COUNT_IF(f.position = 2 AND ds.session_name = 'Race') AS second_places
+  FROM gold_fact_session_result f
+  JOIN gold_dim_session ds ON ds.session_key = f.session_key
+  JOIN gold_dim_driver  d  ON d.driver_key   = f.driver_key   -- the team AT THAT RACE
+  GROUP BY ds.year, d.team_name
+)
+SELECT
+  RANK() OVER (PARTITION BY t.year
+               ORDER BY t.points DESC, t.wins DESC, t.second_places DESC) AS position,
+  t.year, t.team_name, c.team_colour, t.points, t.wins
+FROM totals t
+LEFT JOIN gold_team_colours c ON c.year = t.year AND c.team_name = t.team_name;
+
+
+CREATE OR REFRESH MATERIALIZED VIEW gold_latest_race_results
+AS
+WITH latest AS (
+  SELECT session_key
+  FROM gold_dim_session
+  WHERE session_name = 'Race' AND status = 'completed'
+  ORDER BY date_start DESC
+  LIMIT 1
+),
+best_laps AS (
+  SELECT driver_key, MIN(lap_time_sec) AS best_lap_sec
+  FROM gold_fact_lap
+  WHERE session_key = (SELECT session_key FROM latest)
+  GROUP BY driver_key
+)
+SELECT
+  ds.year, ds.round_number, ds.meeting_name, ds.location, ds.country_name, ds.date_start,
+  f.finish_order, f.position, f.status,
+  d.first_name, d.last_name, d.name_acronym, d.team_name, c.team_colour,
+  f.grid_position, f.positions_gained, f.points, f.laps_completed,
+  f.gap_to_leader_sec, f.laps_behind,
+  b.best_lap_sec,
+  b.best_lap_sec = MIN(b.best_lap_sec) OVER () AS has_fastest_lap
+FROM gold_fact_session_result f
+JOIN latest l               ON l.session_key = f.session_key
+JOIN gold_dim_session ds    ON ds.session_key = f.session_key
+JOIN gold_dim_driver d      ON d.driver_key   = f.driver_key
+LEFT JOIN best_laps b       ON b.driver_key   = f.driver_key
+LEFT JOIN gold_team_colours c ON c.year = ds.year AND c.team_name = d.team_name;
