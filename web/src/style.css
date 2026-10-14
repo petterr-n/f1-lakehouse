@@ -1,0 +1,7 @@
+body { font-family: system-ui, sans-serif; margin: 0 auto; max-width: 900px; padding: 16px; background: #15151e; color: #f2f2f2; }
+.controls { display: flex; gap: 8px; margin-bottom: 16px; }
+select { font: inherit; padding: 6px 8px; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #2a2a35; }
+.bar { display: inline-block; width: 4px; height: 1em; margin-right: 8px; vertical-align: middle; }
+.error { color: #ff6b6b; }
