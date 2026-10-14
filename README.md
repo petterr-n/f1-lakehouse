@@ -1,65 +1,79 @@
-# F1-lakehouse
-F1 analytics lakehouse on Databricks. It pulls real race data from [OpenF1](https://openf1.org) and refines it through Bronze, Silver and Gold layers into tables ready for analysis.
+# f1-lakehouse
 
-**Live site:** [petterr-n.github.io/f1-lakehouse](https://petterr-n.github.io/f1-lakehouse/) shows the latest race result and the current drivers' and constructors' standings.
+Formula 1 data pipeline on Databricks. Pulls session data from the [OpenF1 API](https://openf1.org), builds bronze/silver/gold tables, and publishes the latest race result and championship standings to a static site once a week.
+
+Live site: https://petterr-n.github.io/f1-lakehouse/
+
+## How it works
+
+```mermaid
+flowchart LR
+    api([OpenF1 API]) --> ingest
+
+    subgraph Databricks
+        ingest[ingest] --> landing[(raw JSON)]
+        landing --> bronze --> silver --> gold
+        gold --> validate --> export
+    end
+
+    export --> site[GitHub Pages]
+```
+
+A job runs every Monday after race weekends: ingest new sessions, run the pipeline, validate, export. If validation fails the export is skipped, so the site just keeps last week's data.
+
+Bronze, silver and gold are one Lakeflow pipeline (SQL in `pipeline/`). Ingest, validate and export are notebooks.
+
+## Tables
+
+- bronze: raw API responses, one table per endpoint
+- silver: cleaned and deduplicated sessions, results, drivers, laps, stints, pit stops, weather etc.
+- gold: star schema (`dim_driver`, `dim_session`, `fact_session_result`, `fact_lap`) plus standings, tyre degradation and the tables the site uses
+
+`dim_driver` is SCD type 2, so points go to the team the driver was actually with at each race.
+
+## Data quality
+
+The pipeline has expectations on most silver/gold tables. Some fail the run, some drop the row, some just count violations.
+
+`notebooks/validate.py` does the checks that need more than one row: one winner per race, unique driver keys, no overlapping stints, no rows lost between layers, and 2025 final standings matching the official ones.
+
+## Things worth knowing about the OpenF1 data
+
+- Cancelled races show up as normal sessions, just with no results
+- Starting grids are attached to the qualifying session, not the race
+- Car numbers aren't stable (reused and changed between seasons), so drivers are keyed on name
+- Session keys aren't in date order
+- Lapped cars have `"+1 LAP"` as text in the gap field
+- A few races have stints that overlap by one lap
+- Missing track temperatures come through as 0 °C
+
+Sessions are only ingested 12 hours after they end, otherwise you can get partial data.
+
+## Layout
 
 ```
-OpenF1 API ──► landing Volume (JSON) ──► Bronze ──► Silver ──► Gold
-               notebooks/ingest_openf1.py   └──── pipeline/*.sql ────┘
+databricks.yml        bundle config (dev + prod)
+resources/            job and pipeline definitions
+pipeline/             bronze/silver/gold SQL
+notebooks/            ingest, validate, export
+src/f1_ingest/        ingest logic (unit tested)
+tests/
+site/                 static site
+.github/workflows/
 ```
 
-## Ingesting
-[notebooks/ingest_openf1.py](notebooks/ingest_openf1.py) lands raw JSON in `/Volumes/f1/bronze/landing/openf1`, one file per session and endpoint (drivers, results, laps, stints, pit stops, weather, race control).
-
-- Only sessions that ended more than 12 hours ago and haven't been landed already are fetched.
-- The `years` parameter defaults to the current season. Pass e.g. `2023,2024` to backfill.
-- The decisions about what to fetch live in [src/f1_ingest/planning.py](src/f1_ingest/planning.py) as pure functions, so they can be unit-tested without the API.
-
-## Modelling
-A serverless Lakeflow (DLT) pipeline in [pipeline/](pipeline/) builds three layers in the `f1` catalog:
-
-| Layer  | What it holds |
-|--------|---------------|
-| Bronze | Raw JSON as tables, plus source file and ingest time. Event data is streamed incrementally. |
-| Silver | Deduplicated, typed and cleaned tables (sessions, meetings, results, drivers, grid, laps, stints) with data-quality expectations. |
-| Gold   | Star schema: `dim_driver` (SCD2, tracks team and number changes), `dim_session`, `fact_session_result`, `fact_lap`. Analysis tables: tyre degradation, championship progress and season points. |
-
-## Automating
-The `f1_weekly` job ([resources/f1_weekly.job.yml](resources/f1_weekly.job.yml)) runs every Monday at 14:00 (Oslo time):
-
-1. **ingest**: land new OpenF1 data (retries twice)
-2. **transform**: run the pipeline
-3. **validate**: cross-table checks such as one winner per race, unique driver keys, and the 2025 standings matching the official result
-4. **export**: write the gold tables the site needs to `/Volumes/f1/pipeline/exports/site/f1_site_data.json` ([notebooks/export_site_data.py](notebooks/export_site_data.py))
-
-The job emails on failure.
-
-## Publishing
-The public site at [petterr-n.github.io/f1-lakehouse](https://petterr-n.github.io/f1-lakehouse/) is a static page ([site/index.html](site/index.html)) served by GitHub Pages. It only renders the exported JSON, so all numbers come from the validated gold tables.
-
-[publish-site.yml](.github/workflows/publish-site.yml) downloads the latest export from Databricks and deploys the site:
-- every Monday at 14:00 UTC, after the weekly job has finished
-- on push to `main` when anything under `site/` changes
-- manually via **Run workflow**
-
-## Operating
-Everything is deployed as a Databricks Asset Bundle ([databricks.yml](databricks.yml)):
-
-| Target | Schema        | Mode        |
-|--------|---------------|-------------|
-| `dev`  | `pipeline_dev` | development (default) |
-| `prod` | `pipeline`     | production |
+## Running it
 
 ```bash
-pytest -v                              # unit tests
-databricks bundle validate -t dev
+pytest
 databricks bundle deploy -t dev
 databricks bundle run f1_weekly -t dev
 ```
 
-CI/CD with GitHub Actions:
-- **Pull requests to `main`**: run tests and validate the prod bundle ([ci.yml](.github/workflows/ci.yml))
-- **Push to `main`**: run tests and deploy to prod ([deploy.yml](.github/workflows/deploy.yml))
-- **Weekly / on site changes**: publish the site to GitHub Pages ([publish-site.yml](.github/workflows/publish-site.yml))
+CI runs the tests and validates the bundle on PRs. Merging to `main` deploys to prod. The site is republished every Monday and whenever `site/` changes. Workflows need `DATABRICKS_HOST` and `DATABRICKS_TOKEN` set as repo secrets.
 
-All three need the `DATABRICKS_HOST` and `DATABRICKS_TOKEN` repo secrets.
+## Notes
+
+OpenF1 only has data from 2023 onwards. Tyre degradation numbers are a bit low since fuel burn makes cars faster over a stint, which hides some of the wear.
+
+Data: [OpenF1](https://openf1.org). Not affiliated with Formula 1.
