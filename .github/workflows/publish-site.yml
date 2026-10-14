@@ -6,7 +6,7 @@ on:
   workflow_dispatch:            # "Run workflow" button for manual updates
   push:
     branches: [main]
-    paths: ["site/**"]          # republish when the page itself changes
+    paths: ["web/**"]           # republish when the page itself changes
 
 permissions:
   contents: read
@@ -30,18 +30,31 @@ jobs:
 
       - name: Download validated site data
         run: |
-          mkdir -p site/data
-          databricks fs cp dbfs:/Volumes/f1/pipeline/exports/site/f1_site_data.json site/data/ --overwrite
-          databricks fs cp dbfs:/Volumes/f1/pipeline/exports/site/qualifying.json site/data/qualifying.json --overwrite
+          mkdir -p web/public/data
+          for f in races.json qualifying.json standings.json; do
+            databricks fs cp "dbfs:/Volumes/f1/pipeline/exports/site/$f" web/public/data/ --overwrite
+          done
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build site
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: site
+          path: web/dist
 
       - id: deployment
         uses: actions/deploy-pages@v4

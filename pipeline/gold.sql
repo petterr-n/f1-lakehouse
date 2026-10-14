@@ -203,7 +203,7 @@ GROUP BY r.year, d.driver_id;
 CREATE OR REFRESH MATERIALIZED VIEW gold_team_colours
 AS
 SELECT sd.year, sd.team_name,
-       MAX_BY(sd.team_colour, s.date_start) AS team_colour
+       upper(MAX_BY(sd.team_colour, s.date_start)) AS team_colour   -- one colour per team per season, so one-off liveries don't leak in
 FROM silver_session_drivers sd
 JOIN silver_sessions s ON s.session_key = sd.session_key
 GROUP BY sd.year, sd.team_name;
@@ -292,6 +292,8 @@ COMMENT 'Qualifying and sprint qualifying classification per session, ready for 
 AS
 SELECT
   year(s.date_start)  AS season,
+  ds.round_number,
+  s.meeting_key,
   s.session_key,
   s.location,
   s.session_name,                 -- 'Qualifying' or 'Sprint Qualifying'
@@ -302,7 +304,7 @@ SELECT
   concat_ws(' ', d.first_name, d.last_name) AS full_name,
   d.name_acronym,
   d.team_name,
-  d.team_colour,
+  c.team_colour,
   q.q1_seconds, q.q2_seconds, q.q3_seconds,
   q.q1_gap,     q.q2_gap,     q.q3_gap,
   q.stage_reached,
@@ -310,5 +312,125 @@ SELECT
   q.dns, q.dnf, q.dsq
 FROM silver_qualifying_results q
 JOIN silver_sessions s USING (session_key)
+LEFT JOIN gold_dim_session ds ON ds.session_key = q.session_key
 LEFT JOIN silver_session_drivers d
-  ON d.session_key = q.session_key AND d.driver_number = q.driver_number;
+  ON d.session_key = q.session_key AND d.driver_number = q.driver_number
+LEFT JOIN gold_team_colours c
+  ON c.year = s.year AND c.team_name = d.team_name;
+-- Every completed race and sprint, so the site can click through the season.
+-- Same columns as gold_latest_race_results, plus the keys to group by weekend.
+CREATE OR REFRESH MATERIALIZED VIEW gold_race_results (
+  CONSTRAINT has_driver EXPECT (driver_id IS NOT NULL) ON VIOLATION FAIL UPDATE
+)
+COMMENT 'Classification of every completed race and sprint, ready for the site'
+AS
+WITH best_laps AS (
+  SELECT session_key, driver_key, MIN(lap_time_sec) AS best_lap_sec
+  FROM gold_fact_lap
+  GROUP BY session_key, driver_key
+)
+SELECT
+  ds.year AS season, ds.round_number, ds.meeting_key, ds.meeting_name,
+  ds.session_key, ds.session_name,           -- 'Race' or 'Sprint'
+  ds.location, ds.country_name, ds.date_start,
+  f.finish_order, f.position, f.status,
+  f.driver_id, d.first_name, d.last_name, d.name_acronym, d.driver_number,
+  d.team_name, c.team_colour,
+  f.grid_position, f.positions_gained, f.points, f.laps_completed,
+  f.race_time_sec, f.gap_to_leader_sec, f.laps_behind,
+  b.best_lap_sec,
+  b.best_lap_sec = MIN(b.best_lap_sec) OVER (PARTITION BY f.session_key) AS has_fastest_lap
+FROM gold_fact_session_result f
+JOIN gold_dim_session ds    ON ds.session_key = f.session_key
+JOIN gold_dim_driver d      ON d.driver_key   = f.driver_key
+LEFT JOIN best_laps b       ON b.session_key  = f.session_key AND b.driver_key = f.driver_key
+LEFT JOIN gold_team_colours c ON c.year = ds.year AND c.team_name = d.team_name
+WHERE ds.session_type = 'Race' AND ds.status = 'completed';
+
+
+-- Driver standings as they stood after each round (race + sprint points up to and
+-- including that round). Same ranking rules as gold_driver_standings.
+CREATE OR REFRESH MATERIALIZED VIEW gold_driver_standings_by_round
+AS
+WITH rounds AS (
+  SELECT DISTINCT year, round_number
+  FROM gold_dim_session
+  WHERE session_name = 'Race' AND status = 'completed'
+),
+per_round AS (
+  SELECT ds.year, ds.round_number, f.driver_id,
+         SUM(f.points)                                         AS points,
+         COUNT_IF(f.position = 1  AND ds.session_name = 'Race') AS wins,
+         COUNT_IF(f.position = 2  AND ds.session_name = 'Race') AS second_places,
+         COUNT_IF(f.position <= 3 AND ds.session_name = 'Race') AS podiums,
+         MAX_BY(f.driver_key, ds.date_start)                   AS driver_key
+  FROM gold_fact_session_result f
+  JOIN gold_dim_session ds ON ds.session_key = f.session_key
+  GROUP BY ds.year, ds.round_number, f.driver_id
+),
+cumulative AS (
+  SELECT r.year, r.round_number, p.driver_id,
+         SUM(p.points)        AS points,
+         SUM(p.wins)          AS wins,
+         SUM(p.second_places) AS second_places,
+         SUM(p.podiums)       AS podiums,
+         MAX_BY(p.driver_key, p.round_number) AS driver_key
+  FROM rounds r
+  JOIN per_round p ON p.year = r.year AND p.round_number <= r.round_number
+  GROUP BY r.year, r.round_number, p.driver_id
+),
+ranked AS (
+  SELECT *,
+    RANK() OVER (PARTITION BY year, round_number
+                 ORDER BY points DESC, wins DESC, second_places DESC) AS position
+  FROM cumulative
+)
+SELECT
+  t.year, t.round_number, t.position,
+  LAG(t.position) OVER (PARTITION BY t.year, t.driver_id ORDER BY t.round_number) AS previous_position,
+  t.driver_id, d.first_name, d.last_name, d.name_acronym, d.driver_number,
+  d.team_name, c.team_colour,
+  t.points, t.wins, t.podiums
+FROM ranked t
+JOIN gold_dim_driver d        ON d.driver_key = t.driver_key
+LEFT JOIN gold_team_colours c ON c.year = t.year AND c.team_name = d.team_name;
+
+
+CREATE OR REFRESH MATERIALIZED VIEW gold_constructor_standings_by_round
+AS
+WITH rounds AS (
+  SELECT DISTINCT year, round_number
+  FROM gold_dim_session
+  WHERE session_name = 'Race' AND status = 'completed'
+),
+per_round AS (
+  SELECT ds.year, ds.round_number, d.team_name,
+         SUM(f.points)                                        AS points,
+         COUNT_IF(f.position = 1 AND ds.session_name = 'Race') AS wins,
+         COUNT_IF(f.position = 2 AND ds.session_name = 'Race') AS second_places
+  FROM gold_fact_session_result f
+  JOIN gold_dim_session ds ON ds.session_key = f.session_key
+  JOIN gold_dim_driver  d  ON d.driver_key   = f.driver_key   -- the team AT THAT RACE
+  GROUP BY ds.year, ds.round_number, d.team_name
+),
+cumulative AS (
+  SELECT r.year, r.round_number, p.team_name,
+         SUM(p.points)        AS points,
+         SUM(p.wins)          AS wins,
+         SUM(p.second_places) AS second_places
+  FROM rounds r
+  JOIN per_round p ON p.year = r.year AND p.round_number <= r.round_number
+  GROUP BY r.year, r.round_number, p.team_name
+),
+ranked AS (
+  SELECT *,
+    RANK() OVER (PARTITION BY year, round_number
+                 ORDER BY points DESC, wins DESC, second_places DESC) AS position
+  FROM cumulative
+)
+SELECT
+  t.year, t.round_number, t.position,
+  LAG(t.position) OVER (PARTITION BY t.year, t.team_name ORDER BY t.round_number) AS previous_position,
+  t.team_name, c.team_colour, t.points, t.wins
+FROM ranked t
+LEFT JOIN gold_team_colours c ON c.year = t.year AND c.team_name = t.team_name;
