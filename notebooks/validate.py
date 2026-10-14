@@ -72,6 +72,13 @@ checks = {
     "stint quarantine stays small (max 5)": """
         SELECT GREATEST(COUNT(*) - 5, 0) FROM f1.pipeline.silver_quarantine_stints
     """,
+
+    "fact_lap only contains races and sprints": """
+        SELECT COUNT(*)
+        FROM f1.pipeline.gold_fact_lap f
+        JOIN f1.pipeline.gold_dim_session s ON s.session_key = f.session_key
+        WHERE s.session_type <> 'Race'
+    """,
 }
 
 failures = []

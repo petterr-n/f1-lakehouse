@@ -115,7 +115,8 @@ LEFT JOIN gold_dim_driver dd
 LEFT JOIN silver_stints st
   ON  st.session_key   = l.session_key
   AND st.driver_number = l.driver_number
-  AND l.lap_number BETWEEN st.lap_start AND st.lap_end;
+  AND l.lap_number BETWEEN st.lap_start AND st.lap_end
+WHERE s.session_type = 'Race';          -- races and sprints only; qualifying laps get their own table
 
 
 -- ================= Analysis tables =================
