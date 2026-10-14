@@ -37,3 +37,42 @@ def parse_years(param: str, now: datetime) -> list[int]:
         if not FIRST_OPENF1_YEAR <= y <= now.year:
             raise ValueError(f"OpenF1 has data from {FIRST_OPENF1_YEAR} to {now.year}, got {y}")
     return years
+
+
+# --- What to fetch per session type -------------------------------------
+# (API endpoint, landing folder). Qualifying results have a different shape
+# (Q1/Q2/Q3 lists), so they land in their own folder.
+# race_control is always last: its file is the "session fully landed" marker.
+
+RACE_ENDPOINTS = [
+    ("drivers", "drivers"),
+    ("session_result", "session_result"),
+    ("laps", "laps"),
+    ("stints", "stints"),
+    ("pit", "pit"),
+    ("weather", "weather"),
+    ("race_control", "race_control"),
+]
+
+QUALIFYING_ENDPOINTS = [
+    ("drivers", "drivers"),
+    ("session_result", "session_result_qualifying"),
+    ("laps", "laps"),
+    ("race_control", "race_control"),
+]
+
+INGESTED_SESSION_TYPES = ("Race", "Qualifying")   # OpenF1: sprints are "Race", sprint qualifying is "Qualifying"
+
+
+def endpoints_for(session: dict) -> list[tuple[str, str]]:
+    """(API endpoint, landing folder) pairs to fetch for one session."""
+    if session["session_type"] == "Race":
+        return RACE_ENDPOINTS
+    if session["session_type"] == "Qualifying":
+        return QUALIFYING_ENDPOINTS
+    raise ValueError(f"Session type not ingested: {session['session_type']}")
+
+
+def landed_marker_folder(session: dict) -> str:
+    """The folder whose file proves a session was landed completely (the last one fetched)."""
+    return endpoints_for(session)[-1][1]

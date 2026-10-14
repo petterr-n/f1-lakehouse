@@ -16,6 +16,10 @@ CREATE OR REFRESH STREAMING TABLE bronze_session_result
 AS SELECT *, _metadata.file_path AS _source_file, current_timestamp() AS _ingested_at
 FROM STREAM read_files('/Volumes/f1/bronze/landing/openf1/session_result/', format => 'json', multiLine => true);
 
+CREATE OR REFRESH STREAMING TABLE bronze_session_result_qualifying
+AS SELECT *, _metadata.file_path AS _source_file, current_timestamp() AS _ingested_at
+FROM STREAM read_files('/Volumes/f1/bronze/landing/openf1/session_result_qualifying/', format => 'json', multiLine => true);
+
 CREATE OR REFRESH STREAMING TABLE bronze_starting_grid
 AS SELECT *, _metadata.file_path AS _source_file, current_timestamp() AS _ingested_at
 FROM STREAM read_files('/Volumes/f1/bronze/landing/openf1/starting_grid/', format => 'json', multiLine => true);

@@ -14,11 +14,13 @@ import requests
 
 # Make the tested module importable: src/ sits next to notebooks/ in the repo
 sys.path.append(os.path.abspath("../src"))
-from f1_ingest.planning import meetings_needing_grid, parse_years, sessions_to_ingest
+from f1_ingest.planning import (
+    INGESTED_SESSION_TYPES, endpoints_for, landed_marker_folder,
+    meetings_needing_grid, parse_years, sessions_to_ingest,
+)
 
 BASE_URL = "https://api.openf1.org/v1"
 LANDING = "/Volumes/f1/bronze/landing/openf1"
-SESSION_ENDPOINTS = ["drivers", "session_result", "laps", "stints", "pit", "weather", "race_control"]
 
 _last_call = 0.0
 
@@ -50,18 +52,19 @@ def write_json(path, data):
     with open(path, "w") as f:
         json.dump(data, f)
 
-def session_is_landed(year, session_key):
-    """race_control is fetched last, so if its file exists the whole session is done."""
-    return os.path.exists(f"{LANDING}/race_control/year={year}/session_key={session_key}.json")
+def session_is_landed(session):
+    """The marker endpoint is fetched last, so if its file exists the whole session is done."""
+    folder = landed_marker_folder(session)
+    return os.path.exists(f"{LANDING}/{folder}/year={session['year']}/session_key={session['session_key']}.json")
 
 def grid_path(year, meeting_key):
     return f"{LANDING}/starting_grid/year={year}/meeting_key={meeting_key}.json"
 
 def land_session(session):
     year, key = session["year"], session["session_key"]
-    for endpoint in SESSION_ENDPOINTS:
+    for endpoint, folder in endpoints_for(session):
         data = get_openf1(endpoint, session_key=key)
-        write_json(f"{LANDING}/{endpoint}/year={year}/session_key={key}.json", data)
+        write_json(f"{LANDING}/{folder}/year={year}/session_key={key}.json", data)
 
 def land_season_lists(year):
     """Small lists, overwritten every run (the pipeline re-reads them in full)."""
@@ -75,10 +78,11 @@ def ingest_year(year):
     land_season_lists(year)
 
     # Sessions: what's finished and not landed yet is decided by the tested module
-    races = get_openf1("sessions", year=year, session_type="Race")
-    landed = {s["session_key"] for s in races if session_is_landed(year, s["session_key"])}
-    todo = sessions_to_ingest(races, landed, now)
-    print(f"{len(races)} race sessions: {len(landed)} already landed, {len(todo)} to ingest")
+    sessions = [s for t in INGESTED_SESSION_TYPES for s in get_openf1("sessions", year=year, session_type=t)]
+    races = [s for s in sessions if s["session_type"] == "Race"]
+    landed = {s["session_key"] for s in sessions if session_is_landed(s)}
+    todo = sessions_to_ingest(sessions, landed, now)
+    print(f"{len(sessions)} race and qualifying sessions: {len(landed)} already landed, {len(todo)} to ingest")
     for s in todo:
         land_session(s)
         print(f'done  {s["session_key"]} {s["location"]} - {s["session_name"]}')

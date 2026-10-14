@@ -259,7 +259,6 @@ SELECT
   wind_direction                 AS wind_direction_deg
 FROM latest;
 
-
 CREATE OR REFRESH MATERIALIZED VIEW silver_race_control
 AS
 WITH latest AS (
@@ -271,3 +270,39 @@ SELECT
   * EXCEPT (date, _rescued_data, _source_file, _ingested_at),
   CAST(date AS TIMESTAMP) AS message_time
 FROM latest;
+
+CREATE OR REFRESH MATERIALIZED VIEW silver_qualifying_results (
+  CONSTRAINT has_keys       EXPECT (session_key IS NOT NULL AND driver_number IS NOT NULL) ON VIOLATION DROP ROW,
+  CONSTRAINT valid_position EXPECT (position IS NULL OR position BETWEEN 1 AND 22),
+  CONSTRAINT q3_has_q2_time EXPECT (stage_reached <> 'Q3' OR q2_seconds IS NOT NULL)
+)
+COMMENT 'One row per driver per qualifying or sprint qualifying session, with Q1/Q2/Q3 split out'
+AS
+WITH parsed AS (
+  SELECT
+    session_key,
+    meeting_key,
+    driver_number,
+    CAST(position AS INT) AS position,
+    try_cast(try_element_at(duration, 1) AS DOUBLE)      AS q1_seconds,
+    try_cast(try_element_at(duration, 2) AS DOUBLE)      AS q2_seconds,
+    try_cast(try_element_at(duration, 3) AS DOUBLE)      AS q3_seconds,
+    try_cast(try_element_at(gap_to_leader, 1) AS DOUBLE) AS q1_gap,
+    try_cast(try_element_at(gap_to_leader, 2) AS DOUBLE) AS q2_gap,
+    try_cast(try_element_at(gap_to_leader, 3) AS DOUBLE) AS q3_gap,
+    CAST(number_of_laps AS INT) AS laps,
+    coalesce(dns, false) AS dns,
+    coalesce(dnf, false) AS dnf,
+    coalesce(dsq, false) AS dsq
+  FROM bronze_session_result_qualifying
+)
+SELECT
+  *,
+  CASE
+    WHEN position IS NULL     THEN NULL
+    WHEN position <= 10       THEN 'Q3'
+    WHEN q2_seconds IS NOT NULL THEN 'Q2'
+    ELSE 'Q1'
+  END AS stage_reached
+FROM parsed
+QUALIFY row_number() OVER (PARTITION BY session_key, driver_number ORDER BY position NULLS LAST) = 1;

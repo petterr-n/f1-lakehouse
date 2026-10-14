@@ -257,7 +257,6 @@ SELECT
 FROM totals t
 LEFT JOIN gold_team_colours c ON c.year = t.year AND c.team_name = t.team_name;
 
-
 CREATE OR REFRESH MATERIALIZED VIEW gold_latest_race_results
 AS
 WITH latest AS (
@@ -287,3 +286,29 @@ JOIN gold_dim_session ds    ON ds.session_key = f.session_key
 JOIN gold_dim_driver d      ON d.driver_key   = f.driver_key
 LEFT JOIN best_laps b       ON b.driver_key   = f.driver_key
 LEFT JOIN gold_team_colours c ON c.year = ds.year AND c.team_name = d.team_name;
+
+CREATE OR REFRESH MATERIALIZED VIEW gold_qualifying_results
+COMMENT 'Qualifying and sprint qualifying classification per session, ready for the site'
+AS
+SELECT
+  year(s.date_start)  AS season,
+  s.session_key,
+  s.location,
+  s.session_name,                 -- 'Qualifying' or 'Sprint Qualifying'
+  s.date_start,
+  q.position,
+  q.driver_number,
+  d.driver_id,
+  concat_ws(' ', d.first_name, d.last_name) AS full_name,
+  d.name_acronym,
+  d.team_name,
+  d.team_colour,
+  q.q1_seconds, q.q2_seconds, q.q3_seconds,
+  q.q1_gap,     q.q2_gap,     q.q3_gap,
+  q.stage_reached,
+  q.laps,
+  q.dns, q.dnf, q.dsq
+FROM silver_qualifying_results q
+JOIN silver_sessions s USING (session_key)
+LEFT JOIN silver_session_drivers d
+  ON d.session_key = q.session_key AND d.driver_number = q.driver_number;
