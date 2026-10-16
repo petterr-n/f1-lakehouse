@@ -1,0 +1,6 @@
+resources:
+  schemas:
+    live:
+      catalog_name: f1
+      name: ${var.live_schema}
+      comment: Live (replay) race data, separate from the weekly pipeline
