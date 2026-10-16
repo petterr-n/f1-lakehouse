@@ -35,7 +35,7 @@ resources:
               schema: ${var.schema}
 
       schedule:
-        quartz_cron_expression: "0 0 14 ? * MON"   # Mondays 14:00
+        quartz_cron_expression: "0 0 10 ? * MON"
         timezone_id: Europe/Oslo
 
       email_notifications:

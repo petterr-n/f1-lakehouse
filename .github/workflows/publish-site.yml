@@ -2,7 +2,7 @@ name: Publish site
 
 on:
   schedule:
-    - cron: "0 14 * * 1"        # Mondays 14:00 UTC, after the 14:00 Oslo job has finished
+    - cron: "30 9 * * 1"        # Mondays 09:30 UTC = 11:30 summer / 10:30 winter, after the 10:00 Oslo job
   workflow_dispatch:            # "Run workflow" button for manual updates
   push:
     branches: [main]
