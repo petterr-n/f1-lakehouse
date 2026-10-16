@@ -45,6 +45,15 @@ ordered AS (
 leader_laps AS (
   SELECT l.lap_number, l.completed_at
   FROM laps l JOIN ordered o ON o.driver_number = l.driver_number AND o.position = 1
+),
+progress AS (
+  -- For each car: how far the leader had got when this car last crossed the line,
+  -- and how many laps the leader has done since
+  SELECT o.driver_number,
+         max(CASE WHEN ll.completed_at <= o.last_completed_at THEN ll.lap_number END) AS leader_lap_then,
+         count_if(ll.completed_at > o.last_completed_at)                             AS leader_laps_since
+  FROM ordered o CROSS JOIN leader_laps ll
+  GROUP BY o.driver_number
 )
 SELECT
   o.position,
@@ -52,15 +61,16 @@ SELECT
   d.name_acronym,
   d.team_name,
   o.laps,
-  max(o.laps) OVER () - o.laps AS laps_behind,
-  -- Gap = how long after the leader this car crossed the line on the same lap
-  CASE WHEN o.position > 1
+  greatest(coalesce(p.leader_lap_then, o.laps) - o.laps, 0)  AS laps_behind,
+  o.position > 1 AND p.leader_laps_since >= 2                 AS is_out,
+    CASE WHEN o.position > 1 AND NOT (p.leader_laps_since >= 2)
        THEN (unix_millis(o.last_completed_at) - unix_millis(ll.completed_at)) / 1000.0
   END AS gap_to_leader_sec,
   o.last_lap_sec,
   o.best_lap_sec,
   o.last_completed_at
 FROM ordered o
+LEFT JOIN progress p    ON p.driver_number = o.driver_number
 LEFT JOIN leader_laps ll ON ll.lap_number = o.laps
 LEFT JOIN silver_session_drivers d
   ON d.session_key = o.session_key AND d.driver_number = o.driver_number;
