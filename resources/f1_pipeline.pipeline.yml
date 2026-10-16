@@ -7,8 +7,8 @@ resources:
       serverless: true
       libraries:
         - file:
-            path: ../pipeline/bronze.sql
+            path: ../pipelines/weekly/bronze.sql
         - file:
-            path: ../pipeline/silver.sql
+            path: ../pipelines/weekly/silver.sql
         - file:
-            path: ../pipeline/gold.sql
+            path: ../pipelines/weekly/gold.sql

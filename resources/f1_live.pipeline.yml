@@ -1,0 +1,12 @@
+resources:
+  pipelines:
+    f1_live_pipeline:
+      name: f1_live_pipeline
+      catalog: f1
+      schema: ${resources.schemas.live.name}
+      serverless: true
+      configuration:
+        source_schema: ${var.schema}   # where silver_session_drivers lives
+      libraries:
+        - file:
+            path: ../pipelines/live/live.sql

@@ -2,13 +2,15 @@ bundle:
   name: f1_lakehouse
 
 include:
-  - resources/f1_pipeline.pipeline.yml
-  - resources/f1_weekly.job.yml
+  - resources/*.yml
 
 variables:
   schema:
     description: Schema the pipeline writes its tables to
     default: pipeline_dev
+  live_schema:
+    description: Schema for the live replay pipeline
+    default: live_dev
 
 targets:
   dev:
@@ -23,6 +25,7 @@ targets:
       root_path: /Workspace/Users/prn@silverliningit.no/.bundle/${bundle.name}/${bundle.target}
     variables:
       schema: pipeline
+      live_schema: live
     permissions:
       - user_name: prn@silverliningit.no
         level: CAN_MANAGE
