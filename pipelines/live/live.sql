@@ -72,5 +72,5 @@ SELECT
 FROM ordered o
 LEFT JOIN progress p    ON p.driver_number = o.driver_number
 LEFT JOIN leader_laps ll ON ll.lap_number = o.laps
-LEFT JOIN silver_session_drivers d
+LEFT JOIN f1.${source_schema}.silver_session_drivers d
   ON d.session_key = o.session_key AND d.driver_number = o.driver_number;
