@@ -1,0 +1,10 @@
+resources:
+  pipelines:
+    f1_live_pipeline:
+      name: f1_live_pipeline
+      catalog: f1
+      schema: ${var.schema}
+      serverless: true
+      libraries:
+        - file:
+            path: ../pipelines/live/live.sql

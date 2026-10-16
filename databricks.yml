@@ -2,8 +2,7 @@ bundle:
   name: f1_lakehouse
 
 include:
-  - resources/f1_pipeline.pipeline.yml
-  - resources/f1_weekly.job.yml
+  - resources/*.yml
 
 variables:
   schema:
