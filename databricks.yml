@@ -25,7 +25,7 @@ targets:
       root_path: /Workspace/Users/prn@silverliningit.no/.bundle/${bundle.name}/${bundle.target}
     variables:
       schema: pipeline
-      live_schema: live
+      live_schema: live_replay
     permissions:
       - user_name: prn@silverliningit.no
         level: CAN_MANAGE
