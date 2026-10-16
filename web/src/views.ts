@@ -199,10 +199,10 @@ function driverCell(name: string, acronym: string, team: string, teamColour: str
 }
 
 function gainedCell(r: RaceResult): string {
-  if (r.grid === null) return `<td class="num muted">–</td>`;
+  if (r.grid === null) return `<td class="num muted hide-xs">–</td>`;
   const g = r.gained ?? 0;
   const delta = r.gained === null ? "" : g > 0 ? `<span class="up">▲${g}</span>` : g < 0 ? `<span class="down">▼${-g}</span>` : `<span class="same">–</span>`;
-  return `<td class="num grid-cell"><span class="muted">P${r.grid}</span> ${delta}</td>`;
+  return `<td class="num grid-cell hide-xs"><span class="muted">P${r.grid}</span> ${delta}</td>`;
 }
 
 export function raceTable(s: RaceSession): string {
@@ -211,7 +211,7 @@ export function raceTable(s: RaceSession): string {
       <table class="results">
         <thead>
           <tr>
-            <th class="num">Pos</th><th>Driver</th><th class="num">Grid</th>
+            <th class="num">Pos</th><th>Driver</th><th class="num hide-xs">Grid</th>
             <th class="num hide-sm">Laps</th><th class="num">Time / gap</th>
             <th class="num hide-sm">Best lap</th><th class="num">Pts</th>
           </tr>
