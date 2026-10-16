@@ -268,8 +268,9 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .page { padding: 0 16px; }
   .hide-sm { display: none; }
   .show-sm { display: table-cell; }
-  .results td, .results th { padding-left: 8px; padding-right: 8px; }
-  .results .pos { width: 36px; }
+  .results td, .results th { padding-left: 5px; padding-right: 5px; }
+  .results .pos { width: 30px; }
+  .table-wrap { overflow-x: auto; } /* safety net: scroll rather than cut off a column */
   .driver .full { display: none; }
   .podium { gap: 6px; }
   .podium-step { padding: 12px 10px; min-height: 120px; }
@@ -285,6 +286,11 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .tile-value { font-size: 1.5rem; }
   .standing { grid-template-columns: 24px 30px minmax(0, 1fr) 48px 40px; gap: 8px; }
   .s-name .full:not(.team-only), .s-team { display: none; }
+}
+
+/* Small phones: drop the grid column so position, time and points always fit */
+@media (max-width: 380px) {
+  .hide-xs { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

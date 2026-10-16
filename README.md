@@ -21,7 +21,9 @@ flowchart LR
 
 A job runs every Monday after race weekends: ingest new sessions, run the pipeline, validate, export. If validation fails the export is skipped, so the site just keeps last week's data.
 
-Bronze, silver and gold are one Lakeflow pipeline (SQL in `pipeline/`). Ingest, validate and export are notebooks.
+Bronze, silver and gold are one Lakeflow pipeline (SQL in `pipelines/weekly/`). Ingest, validate and export are notebooks.
+
+There's also a small second pipeline in `pipelines/live/` that replays a past race as if it were live: `notebooks/replay_session.py` drops lap events into a Volume a few at a time, and the pipeline picks them up with Auto Loader and keeps a running race order. It has its own schema and isn't part of the weekly job.
 
 ## Tables
 
@@ -54,8 +56,9 @@ Sessions are only ingested 12 hours after they end, otherwise you can get partia
 ```
 databricks.yml        bundle config (dev + prod)
 resources/            job and pipeline definitions
-pipeline/             bronze/silver/gold SQL
-notebooks/            ingest, validate, export
+pipelines/weekly/     bronze/silver/gold SQL
+pipelines/live/       live replay pipeline
+notebooks/            ingest, validate, export, replay
 src/f1_ingest/        ingest logic (unit tested)
 tests/
 web/                  static site (Vite + TypeScript)
@@ -76,7 +79,7 @@ Site, locally (copy `races.json`, `qualifying.json` and `standings.json` from th
 cd web && npm install && npm run dev
 ```
 
-CI runs the tests and validates the bundle on PRs. Merging to `main` deploys to prod. The site is republished every Monday and whenever `web/` changes. Workflows need `DATABRICKS_HOST` and `DATABRICKS_TOKEN` set as repo secrets.
+CI runs the tests, type-checks the site and validates the bundle on PRs. Merging to `main` deploys to prod. The site is republished every Monday and whenever `web/` changes. Workflows need `DATABRICKS_HOST` and `DATABRICKS_TOKEN` set as repo secrets.
 
 ## Notes
 
