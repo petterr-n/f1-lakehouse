@@ -4,7 +4,7 @@ Pure functions: no API calls, no files, no Spark. That makes them fast and easy 
 """
 from datetime import datetime, timedelta
 
-SETTLE_TIME = timedelta(hours=12)   # give OpenF1 time to finish publishing a session's data
+SETTLE_TIME = timedelta(hours=8)   # give OpenF1 time to finish publishing a session's data
 FIRST_OPENF1_YEAR = 2023
 
 
