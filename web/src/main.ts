@@ -2,6 +2,7 @@ import "./style.css";
 import type { Tab, Weekend } from "./types";
 import { loadData, standingsFor, type SiteData } from "./data";
 import { esc } from "./format";
+import { mountReplay, stopReplay } from "./replay";
 import { championship, hero, highlights, qualifyingTable, raceTable, roundStrip, tabs, tabsFor } from "./views";
 
 const app = document.querySelector<HTMLDivElement>("#app")!;
@@ -34,8 +35,12 @@ function render(data: SiteData, state: State): void {
   const season = data.weekends.filter((w) => w.season === state.season);
   const w: Weekend = season.find((w) => w.round === state.round)!;
 
+  // The replay shows the race's podium and highlights above it
+  const shown: Tab = state.tab === "replay" ? "race" : state.tab;
+
   const session =
-    state.tab === "race" ? raceTable(w.race!)
+    state.tab === "replay" ? `<div id="replay-root"></div>`
+    : state.tab === "race" ? raceTable(w.race!)
     : state.tab === "sprint" ? raceTable(w.sprint!)
     : state.tab === "qualifying" ? qualifyingTable(w.qualifying!)
     : qualifyingTable(w.sprintQualifying!);
@@ -55,9 +60,9 @@ function render(data: SiteData, state: State): void {
     </div>
 
     <main class="page">
-      ${hero(w, state.tab)}
+      ${hero(w, shown)}
       ${tabs(w, state.tab)}
-      ${highlights(w, state.tab)}
+      ${highlights(w, shown)}
       <section class="session" aria-label="Classification">${session}</section>
       ${championship(standingsFor(data, w.season, w.round), w, state.allDrivers)}
     </main>
@@ -68,6 +73,11 @@ function render(data: SiteData, state: State): void {
       <p><a href="https://github.com/petterr-n/f1-lakehouse">Source on GitHub</a></p>
     </footer>
   `;
+
+  // The replay runs on its own once mounted; any other tab stops it
+  const replayRoot = app.querySelector<HTMLElement>("#replay-root");
+  if (replayRoot) mountReplay(replayRoot, w.race!.session_key);
+  else stopReplay();
 
   // Keep the selected round visible in the strip
   app.querySelector(".round.is-active")?.scrollIntoView({ inline: "center", block: "nearest" });
@@ -114,7 +124,7 @@ loadData()
 
     // Arrow keys step through rounds
     document.addEventListener("keydown", (e) => {
-      if (e.target instanceof HTMLSelectElement || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target instanceof HTMLSelectElement || e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       const season = data.weekends.filter((w) => w.season === state.season);
       const i = season.findIndex((w) => w.round === state.round) + (e.key === "ArrowRight" ? 1 : -1);

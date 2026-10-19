@@ -288,6 +288,79 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .s-name .full:not(.team-only), .s-team { display: none; }
 }
 
+/* ---------- Race replay ---------- */
+
+.replay-msg { color: var(--muted); padding: 32px 0; }
+.replay {
+  background: var(--bg-raised); border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden;
+}
+.replay-bar {
+  display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 16px;
+  padding: 14px 16px; border-bottom: 1px solid var(--line);
+}
+.replay-play {
+  min-width: 108px; padding: 9px 16px; border: 0; border-radius: 999px;
+  background: var(--red); color: #fff; font: 700 0.95rem/1 var(--body); letter-spacing: 0.02em;
+}
+.replay-play:hover { filter: brightness(1.1); }
+.replay-lap { display: flex; align-items: baseline; gap: 6px; min-width: 112px; }
+.replay-lap-label { font: 600 0.72rem/1 var(--body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+.replay-lap-no { font: 700 1.6rem/1 var(--display); }
+.replay-lap-of { color: var(--muted); font: 600 1rem/1 var(--display); }
+.replay-slider {
+  --fill: 0%;
+  width: 100%; height: 6px; margin: 0; appearance: none; -webkit-appearance: none; cursor: pointer;
+  border-radius: 3px; background: linear-gradient(90deg, var(--red) var(--fill), var(--line) var(--fill));
+}
+.replay-slider::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: var(--text); border: 0;
+}
+.replay-slider::-moz-range-thumb { width: 16px; height: 16px; border-radius: 50%; background: var(--text); border: 0; }
+.replay-speed select {
+  appearance: none; padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px;
+  background: var(--bg); color: var(--text); font: 600 0.85rem/1 var(--body);
+}
+
+/* The tower: rows stay in the DOM and slide to their slot, so overtakes are visible */
+.replay-tower {
+  --row: 44px; --dur: 600ms;
+  position: relative; list-style: none; margin: 0; padding: 0;
+  height: calc(var(--row) * var(--rows));
+}
+.rp-row {
+  --pos: 0;
+  position: absolute; left: 0; right: 0; top: 0; height: var(--row);
+  display: grid; grid-template-columns: 36px 34px 4px minmax(0, 1fr) 110px 90px; align-items: center; gap: 10px;
+  padding: 0 16px; border-bottom: 1px solid var(--line);
+  transform: translateY(calc(var(--pos) * var(--row)));
+  transition: transform var(--dur) cubic-bezier(0.3, 0.7, 0.2, 1), opacity 300ms;
+}
+.rp-pos { font: 700 1.1rem/1 var(--display); text-align: center; }
+.rp-delta { font: 700 0.75rem/1 var(--body); }
+.rp-row .bar { height: 26px; }
+.rp-who { display: flex; align-items: baseline; gap: 10px; min-width: 0; }
+.rp-team { color: var(--muted); font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-gap { text-align: right; font: 600 1rem/1 var(--display); white-space: nowrap; }
+.rp-lap { text-align: right; color: var(--muted); font: 500 0.95rem/1 var(--display); white-space: nowrap; }
+.rp-lap.purple { color: var(--purple); }
+.rp-row.is-out { opacity: 0.45; }
+.rp-row.is-out .rp-gap { color: var(--down); }
+
+@media (max-width: 640px) {
+  .replay-bar { grid-template-columns: auto 1fr auto; gap: 10px 12px; padding: 12px; }
+  .replay-slider { grid-column: 1 / -1; grid-row: 2; }
+  .replay-lap { min-width: 0; }
+  .replay-tower { --row: 40px; }
+  .rp-row { grid-template-columns: 26px 28px 4px minmax(0, 1fr) 76px; gap: 6px; padding: 0 10px; }
+  .rp-lap { display: none; }
+  .rp-team { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-row { transition: none; }
+}
+
 /* Small phones: drop the grid column so position, time and points always fit */
 @media (max-width: 380px) {
   .hide-xs { display: none; }

@@ -134,4 +134,28 @@ export interface Weekend {
   sprintQualifying?: QualifyingSession;
 }
 
-export type Tab = "race" | "qualifying" | "sprint" | "sprintQualifying";
+export type Tab = "race" | "replay" | "qualifying" | "sprint" | "sprintQualifying";
+
+// ---------- replay/<session_key>.json ----------
+
+export interface ReplayDriver {
+  id: string;
+  acronym: string;
+  name: string;
+  team: string;
+  team_colour: string | null;
+}
+
+// One car on one lap: [driver index, gap to leader (s), laps behind, lap time (s)]
+export type ReplayEntry = [number, number | null, number, number | null];
+
+export interface ReplayLap {
+  lap: number; // 0 = starting grid
+  order: ReplayEntry[]; // already in race order: first entry is P1
+}
+
+export interface ReplayFile {
+  session_key: number;
+  drivers: ReplayDriver[];
+  laps: ReplayLap[];
+}
