@@ -40,7 +40,7 @@ export function roundStrip(weekends: Weekend[], selected: Weekend): string {
           (w) => `
         <button class="round ${w === selected ? "is-active" : ""}" data-round="${w.round}"
                 aria-current="${w === selected ? "true" : "false"}">
-          <span class="round-no">R${w.round}${isSprintWeekend(w) ? `<span class="sprint-dot" title="Sprint weekend">S</span>` : ""}</span>
+          <span class="round-no">R${w.round}${isSprintWeekend(w) ? `<span class="sprint-dot" title="Sprint weekend">sprint</span>` : ""}</span>
           <span class="round-name">${esc(w.location)}</span>
         </button>`,
         )
@@ -93,23 +93,21 @@ function podiumFor(w: Weekend, tab: Tab): PodiumEntry[] {
 
 export function hero(w: Weekend, tab: Tab): string {
   const podium = podiumFor(w, tab);
-  // Classic podium order: P2, P1, P3
-  const ordered = [podium[1], podium[0], podium[2]].filter(Boolean);
   const isQuali = tab === "qualifying" || tab === "sprintQualifying";
 
   return `
-    <header class="hero">
+    <header class="hero bleed">
       <div class="hero-text">
         <p class="eyebrow">Round ${w.round} · ${w.season}${isSprintWeekend(w) ? ` · <span class="tag">Sprint weekend</span>` : ""}</p>
         <h1 class="hero-title">${esc(w.name)}</h1>
         <p class="hero-meta">${esc([w.location, w.country].filter(Boolean).join(", "))} · ${date(w.date)}</p>
       </div>
       <ol class="podium" aria-label="${isQuali ? "Top three in qualifying" : "Podium"}">
-        ${ordered
+        ${podium
           .map(
             (p) => `
           <li class="podium-step p${p.pos}" style="--team:${colour(p.colour)}">
-            <span class="podium-pos">${isQuali && p.pos === 1 ? "POLE" : `P${p.pos}`}</span>
+            <span class="podium-pos">${isQuali && p.pos === 1 ? "Pole" : ["1st", "2nd", "3rd"][p.pos - 1]}</span>
             <span class="podium-code">${esc(p.acronym)}</span>
             <span class="podium-name">${esc(p.name)}</span>
             <span class="podium-team">${esc(p.team)}</span>
@@ -221,7 +219,7 @@ export function raceTable(s: RaceSession): string {
           ${s.results
             .map(
               (r) => `
-            <tr class="${r.status !== "finished" ? "is-out" : ""} ${r.position !== null && r.position <= 3 ? "is-podium" : ""}">
+            <tr class="${r.status !== "finished" ? "is-out" : ""} ${r.position !== null && r.position <= 3 ? "is-podium" : ""}" style="--team:${colour(r.team_colour)}">
               <td class="num pos">${r.position ?? "–"}</td>
               ${driverCell(r.name, r.acronym, r.team, r.team_colour)}
               ${gainedCell(r)}
@@ -278,7 +276,7 @@ export function qualifyingTable(q: QualifyingSession): string {
       : "";
     lastStage = r.stage;
     return `${divider}
-      <tr class="${r.dns || r.dsq ? "is-out" : ""}">
+      <tr class="${r.dns || r.dsq ? "is-out" : ""} ${r.position !== null && r.position <= 3 ? "is-podium" : ""}" style="--team:${colour(r.team_colour)}">
         <td class="num pos">${r.position ?? "–"}</td>
         ${driverCell(r.name, r.acronym, r.team, r.team_colour)}
         ${cell(r, "q1", "hide-sm")}
@@ -354,7 +352,7 @@ export function championship(
   const asOf = s.round === w.round ? `after round ${s.round}` : `after round ${s.round} (round ${w.round} race not yet run)`;
 
   return `
-    <section class="champ" aria-labelledby="champ-title">
+    <section class="champ bleed" aria-labelledby="champ-title">
       <div class="section-head">
         <div>
           <p class="eyebrow">${s.season} season · ${asOf}</p>
