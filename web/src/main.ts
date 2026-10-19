@@ -47,7 +47,7 @@ function render(data: SiteData, state: State): void {
 
   app.innerHTML = `
     <div class="topbar">
-      <div class="page topbar-inner">
+      <div class="masthead"><div class="page topbar-inner">
         <a class="brand" href="#/"><span class="brand-mark"></span>F1 Lakehouse</a>
         <label class="season-select">
           <span class="visually-hidden">Season</span>
@@ -55,7 +55,7 @@ function render(data: SiteData, state: State): void {
             ${data.seasons.map((y) => `<option ${y === state.season ? "selected" : ""}>${y}</option>`).join("")}
           </select>
         </label>
-      </div>
+      </div></div>
       <div class="page">${roundStrip(season, w)}</div>
     </div>
 
@@ -67,11 +67,11 @@ function render(data: SiteData, state: State): void {
       ${championship(standingsFor(data, w.season, w.round), w, state.allDrivers)}
     </main>
 
-    <footer class="page footer">
+    <footer class="footer-band"><div class="page footer">
       <p>Data from <a href="https://openf1.org">OpenF1</a>, processed by a Databricks lakehouse pipeline.
          Updated ${new Date(data.generatedAt).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })}.</p>
       <p><a href="https://github.com/petterr-n/f1-lakehouse">Source on GitHub</a></p>
-    </footer>
+    </div></footer>
   `;
 
   // The replay runs on its own once mounted; any other tab stops it
