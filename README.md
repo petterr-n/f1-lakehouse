@@ -1,6 +1,6 @@
 # f1-lakehouse
 
-Formula 1 data pipeline on Databricks. Pulls session data from the [OpenF1 API](https://openf1.org), builds bronze/silver/gold tables, and publishes race and qualifying results for every weekend, plus the championship standings after each round, to a static site once a week.
+Formula 1 data pipeline on Databricks. Pulls session data from the [OpenF1 API](https://openf1.org), builds bronze/silver/gold tables, and publishes race and qualifying results for every weekend, a lap-by-lap race replay, and the championship standings after each round, to a static site once a week.
 
 Live site: https://petterr-n.github.io/f1-lakehouse/
 
@@ -23,13 +23,19 @@ A job runs every Monday after race weekends: ingest new sessions, run the pipeli
 
 Bronze, silver and gold are one Lakeflow pipeline (SQL in `pipelines/weekly/`). Ingest, validate and export are notebooks.
 
-There's also a small second pipeline in `pipelines/live/` that replays a past race as if it were live: `notebooks/replay_session.py` drops lap events into a Volume a few at a time, and the pipeline picks them up with Auto Loader and keeps a running race order. It has its own schema and isn't part of the weekly job.
+## Race replay
+
+Every race on the site has a Replay tab: a timing tower that plays the race back lap by lap, with positions, gaps, lapped and retired cars.
+
+It's precomputed, not streamed. `gold_race_lap_order` works out the order after every lap from `fact_lap` (when each car crossed the line, how far behind the leader it was, how many laps down), and the export writes one small JSON file per race (~20 KB). The browser only fetches that file when someone opens the replay and does the animation itself. The data is historical and every visitor sees the same race, so there's no reason to compute anything per view.
+
+There's also a small second pipeline in `pipelines/live/` that replays a past race as if it were live: `notebooks/replay_session.py` drops lap events into a Volume a few at a time, and the pipeline picks them up with Auto Loader and keeps a running race order. It has its own schema and isn't part of the weekly job. It's there to show the streaming version of the same problem (incremental reads, event time vs processing time, the order mid-lap), not to serve the site.
 
 ## Tables
 
 - bronze: raw API responses, one table per endpoint
 - silver: cleaned and deduplicated sessions, results, drivers, laps, stints, pit stops, weather etc.
-- gold: star schema (`dim_driver`, `dim_session`, `fact_session_result`, `fact_lap`) plus standings, tyre degradation and the tables the site uses
+- gold: star schema (`dim_driver`, `dim_session`, `fact_session_result`, `fact_lap`) plus standings, lap-by-lap race order, tyre degradation and the tables the site uses
 
 `dim_driver` is SCD type 2, so points go to the team the driver was actually with at each race.
 
@@ -49,7 +55,7 @@ The pipeline has expectations on most silver/gold tables. Some fail the run, som
 - A few races have stints that overlap by one lap
 - Missing track temperatures come through as 0 °C
 
-Sessions are only ingested 12 hours after they end, otherwise you can get partial data.
+Sessions are only ingested 8 hours after they end, otherwise you can get partial data.
 
 ## Layout
 
@@ -73,7 +79,7 @@ databricks bundle deploy -t dev
 databricks bundle run f1_weekly -t dev
 ```
 
-Site, locally (copy `races.json`, `qualifying.json` and `standings.json` from the export volume into `web/public/data/` first):
+Site, locally (copy `races.json`, `qualifying.json`, `standings.json` and the `replay/` folder from the export volume into `web/public/data/` first):
 
 ```bash
 cd web && npm install && npm run dev
