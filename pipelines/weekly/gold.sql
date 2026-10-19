@@ -380,6 +380,10 @@ WITH crossings AS (
   -- which often has no time of its own). Only the very last lap uses start + lap time.
   SELECT
     session_key, driver_id, lap_number, lap_time_sec,
+    compound,
+    tyre_age_laps,
+    -- The next lap is a pit-out lap = the car pitted at the end of this one
+    coalesce(lead(is_pit_out_lap) OVER w, false) AS pitted,
     coalesce(
       CASE WHEN lead(lap_number) OVER w = lap_number + 1 THEN lead(lap_start) OVER w END,
       timestamp_millis(unix_millis(lap_start) + CAST(lap_time_sec * 1000 AS BIGINT))
@@ -412,7 +416,10 @@ SELECT
   r.session_key, r.lap_number, r.driver_id, r.position, r.crossed_at,
   (unix_millis(r.crossed_at) - unix_millis(r.leader_at)) / 1000.0 AS gap_to_leader_sec,
   greatest(b.laps_behind, 0)                                      AS laps_behind,
-  r.lap_time_sec
+  r.lap_time_sec,
+  r.compound,
+  r.tyre_age_laps,
+  r.pitted
 FROM ranked r
 JOIN behind b USING (session_key, driver_id, lap_number)
 
@@ -421,6 +428,44 @@ UNION ALL
 -- Lap 0: the starting grid
 SELECT
   f.session_key, 0 AS lap_number, f.driver_id, f.grid_position AS position,
-  CAST(NULL AS TIMESTAMP), CAST(NULL AS DOUBLE), 0, CAST(NULL AS DOUBLE)
+  CAST(NULL AS TIMESTAMP), CAST(NULL AS DOUBLE), 0, CAST(NULL AS DOUBLE), CAST(NULL AS STRING), CAST(NULL AS INT), false
 FROM gold_fact_session_result f
 WHERE f.grid_position IS NOT NULL;
+
+-- Safety car, virtual safety car and red flag periods, by lap, for the replay.
+CREATE OR REFRESH MATERIALIZED VIEW gold_race_neutralisations (
+  CONSTRAINT has_lap EXPECT (start_lap IS NOT NULL) ON VIOLATION DROP ROW
+)
+COMMENT 'One row per SC / VSC / red flag period in a race or sprint: kind, first lap, last lap'
+AS
+WITH signals AS (
+  SELECT rc.session_key, rc.lap_number, rc.message_time,
+         CASE
+           WHEN rc.message LIKE 'VIRTUAL SAFETY CAR DEPLOYED%'
+             OR rc.message LIKE 'VSC DEPLOYED%'                THEN 'VSC'
+           WHEN rc.message LIKE 'SAFETY CAR DEPLOYED%'         THEN 'SC'
+           WHEN rc.flag = 'RED' OR rc.message LIKE 'RED FLAG%' THEN 'RED'
+         END AS start_kind,
+         CASE
+           WHEN rc.message LIKE 'VIRTUAL SAFETY CAR ENDING%'
+             OR rc.message LIKE 'VSC ENDING%'                  THEN 'VSC'
+           WHEN rc.message LIKE 'SAFETY CAR IN THIS LAP%'      THEN 'SC'
+         END AS end_kind
+  FROM silver_race_control rc
+  JOIN gold_dim_session s ON s.session_key = rc.session_key AND s.session_type = 'Race'
+  WHERE rc.lap_number IS NOT NULL
+)
+SELECT
+  s.session_key,
+  s.start_kind  AS kind,
+  s.lap_number  AS start_lap,
+  CASE WHEN s.start_kind = 'RED' THEN s.lap_number          -- a red flag is shown on its own lap
+       ELSE min_by(e.lap_number, e.message_time) END AS end_lap   -- NULL = lasted to the finish
+FROM signals s
+LEFT JOIN signals e
+  ON  e.session_key = s.session_key
+  AND e.message_time > s.message_time
+  -- The period ends at its own "ending" message, or when a different kind starts (VSC turned into SC)
+  AND (e.end_kind = s.start_kind OR (e.start_kind IS NOT NULL AND e.start_kind <> s.start_kind))
+WHERE s.start_kind IS NOT NULL
+GROUP BY s.session_key, s.start_kind, s.lap_number, s.message_time;

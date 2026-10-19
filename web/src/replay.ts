@@ -5,10 +5,17 @@
 // that (it would restart on every tick), so it owns its own DOM: one row per driver that
 // stays in place and slides to its new position with a CSS transform.
 
-import type { ReplayEntry, ReplayFile } from "./types";
+import type { Neutralisation, ReplayEntry, ReplayFile } from "./types";
 import { colour, esc, lapTime } from "./format";
 
 const SPEEDS = [0.5, 1, 2, 4]; // laps per second
+
+const TYRE_NAMES: Record<string, string> = { S: "Soft", M: "Medium", H: "Hard", I: "Intermediate", W: "Wet" };
+const FLAG_TEXT: Record<Neutralisation["kind"], string> = {
+  SC: "Safety car",
+  VSC: "Virtual safety car",
+  RED: "Red flag",
+};
 
 // Replay files are small and never change, so each one is fetched at most once
 const cache = new Map<number, Promise<ReplayFile | null>>();
@@ -67,6 +74,9 @@ interface Shown {
   lap: string; // last lap time
   purple: boolean; // fastest lap of the race so far
   out: boolean;
+  tyre: string | null; // S / M / H / I / W
+  age: number | null; // laps on this set
+  pitted: boolean; // came into the pits at the end of this lap
 }
 
 function prepare(data: ReplayFile) {
@@ -101,6 +111,18 @@ function prepare(data: ReplayFile) {
     return e[1] === null ? "" : `+${e[1].toFixed(3)}`;
   };
 
+  // Tyre and pit stop for one entry. On the grid, show the tyre each car starts on (from lap 1).
+  const startTyre = (d: number) => entries[d][1]?.[4] ?? null;
+  const tyreOf = (e: ReplayEntry, isGrid: boolean) =>
+    isGrid
+      ? { tyre: startTyre(e[0]), age: null, pitted: false }
+      : { tyre: e[4] ?? null, age: e[5] ?? null, pitted: e[6] === 1 };
+
+  // Safety car / VSC / red flag active on a given lap number, if any
+  const periods = data.neutralisations ?? [];
+  const flagAt = (lap: number): Neutralisation | undefined =>
+    lap === 0 ? undefined : periods.find((p) => lap >= p.from && lap <= (p.to ?? finalLap));
+
   // The tower at lap index i
   function frame(i: number): Shown[] {
     const isGrid = data.laps[i].lap === 0;
@@ -112,6 +134,7 @@ function prepare(data: ReplayFile) {
       lap: lapTime(e[3]),
       purple: e[3] !== null && e[3] === bestNow,
       out: false,
+      ...tyreOf(e, isGrid),
     }));
 
     // Cars missing on this lap: either they finished a lap or more down (still classified),
@@ -130,7 +153,16 @@ function prepare(data: ReplayFile) {
     retired.sort((a, b) => b.seen - a.seen);
 
     for (const x of lapped)
-      shown.push({ driver: x.d, pos: shown.length, gap: gapText(x.e, false, false), lap: lapTime(x.e[3]), purple: false, out: false });
+      shown.push({
+        driver: x.d,
+        pos: shown.length,
+        gap: gapText(x.e, false, false),
+        lap: lapTime(x.e[3]),
+        purple: false,
+        out: false,
+        ...tyreOf(x.e, false),
+        pitted: false,
+      });
     for (const x of retired) {
       const started = x.e && firstSeen[x.d] <= i;
       shown.push({
@@ -140,18 +172,34 @@ function prepare(data: ReplayFile) {
         lap: started && data.laps[x.seen].lap > 0 ? `lap ${data.laps[x.seen].lap}` : "",
         purple: false,
         out: true,
+        tyre: null,
+        age: null,
+        pitted: false,
       });
     }
     return shown;
   }
 
-  return { n, last, finalLap, frame };
+  return { n, last, finalLap, frame, flagAt, periods };
 }
 
 // ---------- The player ----------
 
 function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
-  const { n, last, finalLap, frame } = prepare(data);
+  const { n, last, finalLap, frame, flagAt, periods } = prepare(data);
+
+  // Where each period sits on the slider, as a percentage of the race
+  const indexOfLap = (lap: number) => Math.max(0, data.laps.findIndex((l) => l.lap >= lap));
+  const marks = periods
+    .map((p) => {
+      const from = indexOfLap(p.from) - 0.5;
+      const to = (p.to === null ? last : indexOfLap(p.to)) + 0.5;
+      const left = Math.max(0, (from / last) * 100);
+      const width = Math.max(0.8, (Math.min(last, to) / last) * 100 - left);
+      return `<span class="rp-mark rp-mark-${p.kind.toLowerCase()}" style="left:${left}%;width:${width}%"
+                    title="${FLAG_TEXT[p.kind]}, lap ${p.from}${p.to && p.to !== p.from ? `–${p.to}` : ""}"></span>`;
+    })
+    .join("");
   st.index = Math.min(st.index, last);
 
   root.innerHTML = `
@@ -162,7 +210,10 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
           <span class="replay-lap-label">Lap</span>
           <strong class="replay-lap-no"></strong><span class="replay-lap-of">/ ${finalLap}</span>
         </div>
-        <input class="replay-slider" type="range" min="0" max="${last}" step="1" aria-label="Lap" />
+        <div class="replay-track">
+          <input class="replay-slider" type="range" min="0" max="${last}" step="1" aria-label="Lap" />
+          <div class="rp-marks" aria-hidden="true">${marks}</div>
+        </div>
         <label class="replay-speed">
           <span class="visually-hidden">Playback speed</span>
           <select>
@@ -170,6 +221,7 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
           </select>
         </label>
       </div>
+      <div class="replay-flag" aria-live="polite" hidden></div>
       <ol class="replay-tower" style="--rows:${n}">
         ${data.drivers
           .map(
@@ -178,7 +230,11 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
             <span class="rp-pos"></span>
             <span class="rp-delta"></span>
             <span class="bar"></span>
-            <span class="rp-who"><span class="code">${esc(d.acronym)}</span><span class="rp-team">${esc(d.team)}</span></span>
+            <span class="rp-who">
+              <span class="code">${esc(d.acronym)}</span><span class="rp-team">${esc(d.team)}</span>
+              <span class="rp-pit" hidden>PIT</span>
+            </span>
+            <span class="rp-tyre"><span class="tyre"></span><span class="tyre-age"></span></span>
             <span class="rp-gap"></span>
             <span class="rp-lap"></span>
           </li>`,
@@ -192,6 +248,7 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
   const slider = root.querySelector<HTMLInputElement>(".replay-slider")!;
   const speed = root.querySelector<HTMLSelectElement>(".replay-speed select")!;
   const tower = root.querySelector<HTMLElement>(".replay-tower")!;
+  const flag = root.querySelector<HTMLElement>(".replay-flag")!;
   const rows = [...root.querySelectorAll<HTMLElement>(".rp-row")];
   let prevPos: number[] | null = null;
   let timer: number | undefined;
@@ -205,6 +262,14 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
     slider.value = String(st.index);
     slider.style.setProperty("--fill", `${(st.index / last) * 100}%`);
 
+    // Banner while a safety car, VSC or red flag is out
+    const active = flagAt(lap);
+    flag.hidden = !active;
+    if (active) {
+      flag.textContent = FLAG_TEXT[active.kind];
+      flag.className = `replay-flag is-${active.kind.toLowerCase()}`;
+    }
+
     const pos: number[] = [];
     for (const s of shown) {
       const row = rows[s.driver];
@@ -216,6 +281,14 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
       const lapEl = row.querySelector<HTMLElement>(".rp-lap")!;
       lapEl.textContent = s.lap;
       lapEl.classList.toggle("purple", s.purple);
+
+      // Tyre badge (letter in a ring of the compound's colour) and laps on the set
+      const tyre = row.querySelector<HTMLElement>(".tyre")!;
+      tyre.textContent = s.tyre ?? "";
+      tyre.className = s.tyre ? `tyre t-${s.tyre}` : "tyre";
+      tyre.title = s.tyre ? `${TYRE_NAMES[s.tyre] ?? s.tyre}${s.age !== null ? `, ${s.age} laps old` : ""}` : "";
+      row.querySelector(".tyre-age")!.textContent = s.age !== null ? String(s.age) : "";
+      row.querySelector<HTMLElement>(".rp-pit")!.hidden = !s.pitted;
 
       // Places gained or lost since the previous frame
       const delta = row.querySelector<HTMLElement>(".rp-delta")!;

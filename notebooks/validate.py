@@ -123,6 +123,17 @@ checks = {
           GROUP BY season, team_name
           HAVING COUNT(DISTINCT team_colour) <> 1 OR COUNT_IF(team_colour IS NULL) > 0)
     """,
+
+    "every safety car message in a race is recognised": """
+        SELECT count(*)
+        FROM f1.pipeline.silver_race_control rc
+        JOIN f1.pipeline.gold_dim_session s ON s.session_key = rc.session_key AND s.session_type = 'Race'
+        WHERE rc.category = 'SafetyCar'
+          AND NOT (rc.message LIKE 'VIRTUAL SAFETY CAR DEPLOYED%' OR rc.message LIKE 'VSC DEPLOYED%'
+                OR rc.message LIKE 'VIRTUAL SAFETY CAR ENDING%'   OR rc.message LIKE 'VSC ENDING%'
+                OR rc.message LIKE 'SAFETY CAR DEPLOYED%'         OR rc.message LIKE 'SAFETY CAR IN THIS LAP%'
+                OR rc.message LIKE 'SAFETY CAR THROUGH THE PIT LANE%')
+    """,
 }
 
 failures = []
