@@ -34,6 +34,7 @@ jobs:
           for f in races.json qualifying.json standings.json; do
             databricks fs cp "dbfs:/Volumes/f1/pipeline/exports/site/$f" web/public/data/ --overwrite
           done
+          databricks fs cp -r dbfs:/Volumes/f1/pipeline/exports/site/replay web/public/data/replay --overwrite
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}

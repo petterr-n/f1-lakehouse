@@ -162,3 +162,67 @@ for key, s in standings.items():
         f"Standings for {key} don't start at 1"
 
 write("standings.json", {"generated_at": GENERATED_AT, "rounds": list(standings.values())})
+
+# COMMAND ----------
+
+# Replay: race order after every lap, one small file per race (replay/<session_key>.json).
+# Compact on purpose: drivers are listed once, laps refer to them by index.
+
+REPLAY_DIR = f"{OUT_DIR}/replay"
+os.makedirs(REPLAY_DIR, exist_ok=True)
+
+def r3(x):
+    return None if x is None else round(float(x), 3)
+
+# Who drove in each race (name, team and colour as they were that day)
+drivers = {}
+for r in rows(f"""
+    SELECT DISTINCT session_key, driver_id, name_acronym, first_name, last_name, team_name, team_colour
+    FROM f1.{SCHEMA}.gold_race_results
+"""):
+    drivers.setdefault(r.session_key, {})[r.driver_id] = r
+
+replays = {}
+for r in rows(f"""
+    SELECT session_key, lap_number, position, driver_id, gap_to_leader_sec, laps_behind, lap_time_sec
+    FROM f1.{SCHEMA}.gold_race_lap_order
+    ORDER BY session_key, lap_number, position
+"""):
+    known = drivers.get(r.session_key, {})
+    if r.driver_id not in known:
+        continue   # no result row for this driver, nothing to show
+
+    rp = replays.setdefault(r.session_key, {"session_key": r.session_key, "drivers": [], "index": {}, "laps": {}})
+    if r.driver_id not in rp["index"]:
+        d = known[r.driver_id]
+        rp["index"][r.driver_id] = len(rp["drivers"])
+        rp["drivers"].append({
+            "id": r.driver_id,
+            "acronym": d.name_acronym,
+            "name": f"{d.first_name} {d.last_name}",
+            "team": d.team_name,
+            "team_colour": d.team_colour,
+        })
+
+    # One entry per car, already in race order: [driver index, gap, laps behind, lap time]
+    rp["laps"].setdefault(r.lap_number, []).append(
+        [rp["index"][r.driver_id], r3(r.gap_to_leader_sec), r.laps_behind, r3(r.lap_time_sec)]
+    )
+
+assert replays, "Refusing to export: no replay data"
+
+total = 0
+for key, rp in replays.items():
+    payload = {
+        "session_key": key,
+        "drivers": rp["drivers"],
+        "laps": [{"lap": lap, "order": order} for lap, order in sorted(rp["laps"].items())],
+    }
+    out = f"{REPLAY_DIR}/{key}.json"
+    with open(out + ".tmp", "w") as f:
+        json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))   # no spaces = smaller file
+    os.replace(out + ".tmp", out)
+    total += os.path.getsize(out)
+
+print(f"Wrote {len(replays)} replay files to {REPLAY_DIR}: {total / 1024:.0f} KB in total, "
+      f"{total / len(replays) / 1024:.0f} KB on average")

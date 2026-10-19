@@ -366,3 +366,61 @@ SELECT
   t.team_name, c.team_colour, t.points, t.wins
 FROM ranked t
 LEFT JOIN gold_team_colours c ON c.year = t.year AND c.team_name = t.team_name;
+
+-- Race order lap by lap, for the replay on the site.
+-- One row per car per lap it completed. Lap 0 is the starting grid.
+CREATE OR REFRESH MATERIALIZED VIEW gold_race_lap_order (
+  CONSTRAINT has_driver     EXPECT (driver_id IS NOT NULL) ON VIOLATION DROP ROW,
+  CONSTRAINT valid_position EXPECT (position >= 1)
+)
+COMMENT 'Order, gap and laps behind after every lap of every race and sprint (lap 0 = grid)'
+AS
+WITH crossings AS (
+  -- When a car finished lap N = when it started lap N+1 (this also covers lap 1,
+  -- which often has no time of its own). Only the very last lap uses start + lap time.
+  SELECT
+    session_key, driver_id, lap_number, lap_time_sec,
+    coalesce(
+      CASE WHEN lead(lap_number) OVER w = lap_number + 1 THEN lead(lap_start) OVER w END,
+      timestamp_millis(unix_millis(lap_start) + CAST(lap_time_sec * 1000 AS BIGINT))
+    ) AS crossed_at
+  FROM gold_fact_lap
+  WINDOW w AS (PARTITION BY session_key, driver_id ORDER BY lap_number)
+),
+ranked AS (
+  -- Order on each lap = the order the cars crossed the line at the end of that lap
+  SELECT *,
+         row_number() OVER (PARTITION BY session_key, lap_number ORDER BY crossed_at) AS position,
+         min(crossed_at) OVER (PARTITION BY session_key, lap_number)                  AS leader_at
+  FROM crossings
+  WHERE crossed_at IS NOT NULL
+),
+leader_line AS (
+  -- When the leader completed each lap
+  SELECT DISTINCT session_key, lap_number, leader_at FROM ranked
+),
+behind AS (
+  -- How many laps the leader had done when this car crossed the line
+  SELECT r.session_key, r.driver_id, r.lap_number,
+         max(l.lap_number) - r.lap_number AS laps_behind
+  FROM ranked r
+  JOIN leader_line l
+    ON l.session_key = r.session_key AND l.leader_at <= r.crossed_at
+  GROUP BY r.session_key, r.driver_id, r.lap_number
+)
+SELECT
+  r.session_key, r.lap_number, r.driver_id, r.position, r.crossed_at,
+  (unix_millis(r.crossed_at) - unix_millis(r.leader_at)) / 1000.0 AS gap_to_leader_sec,
+  greatest(b.laps_behind, 0)                                      AS laps_behind,
+  r.lap_time_sec
+FROM ranked r
+JOIN behind b USING (session_key, driver_id, lap_number)
+
+UNION ALL
+
+-- Lap 0: the starting grid
+SELECT
+  f.session_key, 0 AS lap_number, f.driver_id, f.grid_position AS position,
+  CAST(NULL AS TIMESTAMP), CAST(NULL AS DOUBLE), 0, CAST(NULL AS DOUBLE)
+FROM gold_fact_session_result f
+WHERE f.grid_position IS NOT NULL;

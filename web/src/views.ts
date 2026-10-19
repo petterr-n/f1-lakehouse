@@ -13,6 +13,7 @@ import { colour, date, esc, lapTime, points, raceGap } from "./format";
 
 export const TAB_LABELS: Record<Tab, string> = {
   race: "Race",
+  replay: "Replay",
   qualifying: "Qualifying",
   sprint: "Sprint",
   sprintQualifying: "Sprint Qualifying",
@@ -20,7 +21,7 @@ export const TAB_LABELS: Record<Tab, string> = {
 
 export function tabsFor(w: Weekend): Tab[] {
   const tabs: Tab[] = [];
-  if (w.race) tabs.push("race");
+  if (w.race) tabs.push("race", "replay");
   if (w.qualifying) tabs.push("qualifying");
   if (w.sprint) tabs.push("sprint");
   if (w.sprintQualifying) tabs.push("sprintQualifying");
