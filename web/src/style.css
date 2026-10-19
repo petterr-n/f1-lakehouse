@@ -346,7 +346,7 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rp-row {
   --pos: 0;
   position: absolute; left: 0; right: 0; top: 0; height: var(--row);
-  display: grid; grid-template-columns: 36px 34px 5px minmax(0, 1fr) 110px 90px; align-items: center; gap: 10px;
+  display: grid; grid-template-columns: 36px 34px 5px minmax(0, 1fr) 54px 110px 90px; align-items: center; gap: 10px;
   padding: 0 4px; border-bottom: 1px solid var(--line);
   background: var(--bg-raised);
   transform: translateY(calc(var(--pos) * var(--row)));
@@ -364,12 +364,49 @@ button { font: inherit; color: inherit; cursor: pointer; }
 .rp-row.is-out { opacity: 0.45; }
 .rp-row.is-out .rp-gap { color: var(--down); }
 
+/* Level 2: tyres, pit stops, safety car / VSC / red flag */
+.rp-tyre { display: flex; align-items: center; gap: 6px; }
+.tyre {
+  --ring: transparent;
+  display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 50%;
+  border: 3px solid var(--ring); font: 800 0.68rem/1 var(--body); color: var(--text);
+}
+.tyre:empty { border: 0; }
+.t-S { --ring: #e10600; }
+.t-M { --ring: #e8b400; }
+.t-H { --ring: #9a968c; }
+.t-I { --ring: #2c9f4b; }
+.t-W { --ring: #1f6fd1; }
+.tyre-age { font-size: 0.8rem; color: var(--muted); min-width: 1.5em; }
+.rp-pit {
+  margin-left: 2px; padding: 2px 5px; font: 800 0.62rem/1 var(--body); letter-spacing: 0.06em;
+  background: var(--text); color: var(--bg-raised);
+}
+.rp-pit[hidden] { display: none; }
+
+.replay-track { position: relative; display: flex; align-items: center; }
+.replay-track { min-width: 0; padding: 6px 0; }
+/* Periods sit as a thin strip just under the slider, so they never hide the thumb */
+.rp-marks { position: absolute; left: 0; right: 0; top: calc(50% + 6px); height: 4px; pointer-events: none; }
+.rp-mark { position: absolute; top: 0; bottom: 0; opacity: 0.85; }
+.rp-mark-sc, .rp-mark-vsc { background: #e8b400; }
+.rp-mark-vsc { background: repeating-linear-gradient(90deg, #e8b400 0 3px, transparent 3px 5px); }
+.rp-mark-red { background: #e10600; }
+
+.replay-flag {
+  padding: 8px 12px; font: 800 0.8rem/1 var(--body); letter-spacing: 0.14em; text-transform: uppercase; text-align: center;
+}
+.replay-flag[hidden] { display: none; }
+.replay-flag.is-sc, .replay-flag.is-vsc { background: #e8b400; color: #1a1a1a; }
+.replay-flag.is-red { background: #c8102e; color: #fff; }
+
 @media (max-width: 640px) {
   .replay-bar { grid-template-columns: auto 1fr auto; gap: 10px 12px; }
-  .replay-slider { grid-column: 1 / -1; grid-row: 2; }
+  .replay-track { grid-column: 1 / -1; grid-row: 2; }
   .replay-lap { min-width: 0; }
   .replay-tower { --row: 40px; }
-  .rp-row { grid-template-columns: 26px 28px 5px minmax(0, 1fr) 76px; gap: 6px; padding: 0 2px; }
+  .rp-row { grid-template-columns: 26px 28px 5px minmax(0, 1fr) 40px 76px; gap: 6px; padding: 0 2px; }
+  .tyre-age { display: none; }
   .rp-lap { display: none; }
   .rp-team { display: none; }
 }

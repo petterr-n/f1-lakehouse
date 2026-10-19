@@ -184,7 +184,8 @@ for r in rows(f"""
 
 replays = {}
 for r in rows(f"""
-    SELECT session_key, lap_number, position, driver_id, gap_to_leader_sec, laps_behind, lap_time_sec
+    SELECT session_key, lap_number, position, driver_id, gap_to_leader_sec, laps_behind, lap_time_sec,
+        compound, tyre_age_laps, pitted
     FROM f1.{SCHEMA}.gold_race_lap_order
     ORDER BY session_key, lap_number, position
 """):
@@ -204,10 +205,22 @@ for r in rows(f"""
             "team_colour": d.team_colour,
         })
 
-    # One entry per car, already in race order: [driver index, gap, laps behind, lap time]
+    # One entry per car, already in race order:
+    # [driver index, gap, laps behind, lap time, tyre (S/M/H/I/W), tyre age, pitted this lap (0/1)]
+    tyre = {"SOFT": "S", "MEDIUM": "M", "HARD": "H", "INTERMEDIATE": "I", "WET": "W"}.get(r.compound)
     rp["laps"].setdefault(r.lap_number, []).append(
-        [rp["index"][r.driver_id], r3(r.gap_to_leader_sec), r.laps_behind, r3(r.lap_time_sec)]
+        [rp["index"][r.driver_id], r3(r.gap_to_leader_sec), r.laps_behind, r3(r.lap_time_sec),
+         tyre, r.tyre_age_laps, 1 if r.pitted else 0]
     )
+
+# Safety car / VSC / red flag periods, so the site can show a banner on those laps
+periods = {}
+for r in rows(f"""
+    SELECT session_key, kind, start_lap, end_lap
+    FROM f1.{SCHEMA}.gold_race_neutralisations
+    ORDER BY session_key, start_lap
+"""):
+    periods.setdefault(r.session_key, []).append({"kind": r.kind, "from": r.start_lap, "to": r.end_lap})
 
 assert replays, "Refusing to export: no replay data"
 
@@ -216,6 +229,7 @@ for key, rp in replays.items():
     payload = {
         "session_key": key,
         "drivers": rp["drivers"],
+        "neutralisations": periods.get(key, []),   # [{"kind": "VSC", "from": 7, "to": 8}, ...]; to = null means until the finish
         "laps": [{"lap": lap, "order": order} for lap, order in sorted(rp["laps"].items())],
     }
     out = f"{REPLAY_DIR}/{key}.json"

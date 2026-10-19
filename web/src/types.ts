@@ -146,8 +146,19 @@ export interface ReplayDriver {
   team_colour: string | null;
 }
 
-// One car on one lap: [driver index, gap to leader (s), laps behind, lap time (s)]
-export type ReplayEntry = [number, number | null, number, number | null];
+export type Tyre = "S" | "M" | "H" | "I" | "W";
+
+// One car on one lap:
+// [driver index, gap to leader (s), laps behind, lap time (s), tyre, tyre age (laps), pitted at the end of this lap (0/1)]
+// The last three were added later, so older files may not have them.
+export type ReplayEntry = [number, number | null, number, number | null, (Tyre | null)?, (number | null)?, (0 | 1)?];
+
+// A safety car, virtual safety car or red flag period, by lap. to = null: it lasted to the finish.
+export interface Neutralisation {
+  kind: "SC" | "VSC" | "RED";
+  from: number;
+  to: number | null;
+}
 
 export interface ReplayLap {
   lap: number; // 0 = starting grid
@@ -157,5 +168,6 @@ export interface ReplayLap {
 export interface ReplayFile {
   session_key: number;
   drivers: ReplayDriver[];
+  neutralisations?: Neutralisation[];
   laps: ReplayLap[];
 }
