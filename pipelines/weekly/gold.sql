@@ -469,3 +469,60 @@ LEFT JOIN signals e
   AND (e.end_kind = s.start_kind OR (e.start_kind IS NOT NULL AND e.start_kind <> s.start_kind))
 WHERE s.start_kind IS NOT NULL
 GROUP BY s.session_key, s.start_kind, s.lap_number, s.message_time;
+
+-- The circuit, drawn from the fastest clean lap of each race, with points in driving order.
+-- Uses the raw positions (~3.8/s, ~350 points per lap), so corners stay smooth.
+CREATE OR REFRESH MATERIALIZED VIEW gold_track_outline
+COMMENT 'Circuit outline per race: x/y points of one clean fast lap, in driving order'
+AS
+WITH best_lap AS (
+  SELECT session_key, driver_number, lap_start,
+         timestamp_millis(unix_millis(lap_start) + CAST(lap_time_sec * 1000 AS BIGINT)) AS lap_end
+  FROM silver_laps
+  WHERE is_clean_lap AND lap_start IS NOT NULL AND lap_time_sec IS NOT NULL
+  QUALIFY row_number() OVER (PARTITION BY session_key ORDER BY lap_time_sec) = 1
+)
+SELECT b.session_key,
+       row_number() OVER (PARTITION BY b.session_key ORDER BY l.date) AS seq,
+       l.x, l.y
+FROM best_lap b
+JOIN bronze_location l
+  ON  l.session_key   = b.session_key
+  AND l.driver_number = b.driver_number
+  AND l.date BETWEEN b.lap_start AND b.lap_end;
+
+
+-- How much of each race has car positions. Visible, not blocking: a race without
+-- enough data just doesn't get a map, the results and standings are unaffected.
+CREATE OR REFRESH MATERIALIZED VIEW gold_location_coverage
+COMMENT 'Seconds of the race with car positions, and whether that is enough for a map (>= 90%)'
+AS
+WITH have AS (
+  SELECT session_key, count(DISTINCT t) AS seconds_with_data
+  FROM silver_location GROUP BY session_key
+),
+race AS (
+  SELECT session_key, (unix_millis(max(lap_start)) - unix_millis(min(lap_start))) / 1000.0 AS race_seconds
+  FROM silver_laps GROUP BY session_key
+)
+SELECT h.session_key,
+       h.seconds_with_data,
+       round(r.race_seconds)                                          AS race_seconds,
+       least(100, round(100 * h.seconds_with_data / r.race_seconds, 1)) AS coverage_pct,
+       h.seconds_with_data >= 0.9 * r.race_seconds                    AS has_map
+FROM have h JOIN race r USING (session_key);
+
+-- Car positions every 2 seconds, keyed by driver, only for races with enough data for a map.
+-- This is what the map export reads; the site interpolates between the points.
+CREATE OR REFRESH MATERIALIZED VIEW gold_location_frames (
+  CONSTRAINT has_driver EXPECT (driver_id IS NOT NULL) ON VIOLATION DROP ROW
+)
+COMMENT 'One position per car every 2 s during the race, for races where gold_location_coverage.has_map'
+AS
+SELECT l.session_key, d.driver_id, l.t, l.x, l.y
+FROM silver_location l
+JOIN gold_location_coverage c
+  ON c.session_key = l.session_key AND c.has_map
+LEFT JOIN silver_session_drivers d
+  ON d.session_key = l.session_key AND d.driver_number = l.driver_number
+WHERE second(l.t) % 2 = 0;

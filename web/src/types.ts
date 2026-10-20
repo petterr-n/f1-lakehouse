@@ -165,6 +165,21 @@ export interface ReplayLap {
   order: ReplayEntry[]; // already in race order: first entry is P1
 }
 
+// ---------- map/<session_key>.json (track map, current season only) ----------
+
+export interface MapCar {
+  id: string; // driver_id, same key as ReplayDriver.id
+  xy: (number | null)[]; // [x0, y0, x1, y1, ...], one pair every `step` seconds from the start; null = no data
+}
+
+export interface MapFile {
+  session_key: number;
+  step: number; // seconds between positions
+  outline: [number, number][]; // the circuit, in driving order
+  laps: [number, number][]; // [lap, seconds after the start] when the leader finished it
+  cars: MapCar[];
+}
+
 export interface ReplayFile {
   session_key: number;
   drivers: ReplayDriver[];

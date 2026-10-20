@@ -43,3 +43,9 @@ FROM STREAM read_files('/Volumes/f1/bronze/landing/openf1/weather/', format => '
 CREATE OR REFRESH STREAMING TABLE bronze_race_control
 AS SELECT *, _metadata.file_path AS _source_file, current_timestamp() AS _ingested_at
 FROM STREAM read_files('/Volumes/f1/bronze/landing/openf1/race_control/', format => 'json', multiLine => true);
+
+-- Car positions for the track map (~3.8 samples/s per car, current season only).
+-- Gzipped JSON: Spark sees the .gz extension and decompresses on its own.
+CREATE OR REFRESH STREAMING TABLE bronze_location
+AS SELECT *, _metadata.file_path AS _source_file, current_timestamp() AS _ingested_at
+FROM STREAM read_files('/Volumes/f1/bronze/landing/openf1/location/', format => 'json', multiLine => true);

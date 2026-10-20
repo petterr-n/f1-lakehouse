@@ -8,14 +8,14 @@
 
 # COMMAND ----------
 
-import json, os, sys, time
+import gzip, json, os, sys, time
 from datetime import datetime, timezone
 import requests
 
 # Make the tested module importable: src/ sits next to notebooks/ in the repo
 sys.path.append(os.path.abspath("../src"))
 from f1_ingest.planning import (
-    INGESTED_SESSION_TYPES, endpoints_for, landed_marker_folder,
+    INGESTED_SESSION_TYPES, endpoints_for, landed_marker_folder, locations_to_ingest,
     meetings_needing_grid, parse_years, sessions_to_ingest,
 )
 
@@ -33,7 +33,7 @@ def get_openf1(endpoint, **params):
             time.sleep(wait)
         _last_call = time.time()
 
-        r = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=30)
+        r = requests.get(f"{BASE_URL}/{endpoint}", params=params, timeout=120)
         if r.status_code == 404:
             return []
         if r.status_code == 429 or r.status_code >= 500:
@@ -73,6 +73,32 @@ def land_season_lists(year):
         write_json(f"{LANDING}/{endpoint}/year={year}/{endpoint}.json", data)
         print(f"{endpoint}: {len(data)} rows")
 
+# Car positions: one gzipped file per driver per race, plus a _SUCCESS marker once all drivers are done.
+# Files starting with "_" are ignored by Spark, so a half-landed race is never read as complete.
+
+def location_folder(session):
+    return f"{LANDING}/location/year={session['year']}/session_key={session['session_key']}"
+
+def location_is_landed(session):
+    return os.path.exists(f"{location_folder(session)}/_SUCCESS")
+
+def land_location(session):
+    folder = location_folder(session)
+    os.makedirs(folder, exist_ok=True)
+    numbers = sorted({d["driver_number"] for d in get_openf1("drivers", session_key=session["session_key"])})
+    rows = 0
+    for n in numbers:
+        data = get_openf1("location", session_key=session["session_key"], driver_number=n)
+        if not data:
+            continue                       # e.g. a car that never left the garage
+        tmp, final = f"{folder}/_tmp_{n}.json.gz", f"{folder}/driver={n}.json.gz"
+        with gzip.open(tmp, "wt") as f:    # ~10x smaller than plain JSON
+            json.dump(data, f)
+        os.replace(tmp, final)
+        rows += len(data)
+    open(f"{folder}/_SUCCESS", "w").close()
+    return len(numbers), rows
+
 def ingest_year(year):
     now = datetime.now(timezone.utc)
     land_season_lists(year)
@@ -86,6 +112,13 @@ def ingest_year(year):
     for s in todo:
         land_session(s)
         print(f'done  {s["session_key"]} {s["location"]} - {s["session_name"]}')
+
+    # Car positions for the track map: current-season Grand Prix races only
+    loc_landed = {s["session_key"] for s in races if location_is_landed(s)}
+    for s in locations_to_ingest(races, loc_landed, now):
+        t0 = time.time()
+        cars, rows = land_location(s)
+        print(f'loc   {s["session_key"]} {s["location"]}: {cars} cars, {rows:,} positions, {time.time() - t0:.0f}s')
 
     # Grids: one file per weekend; never save an empty grid, so it is retried next run
     grid_landed = {s["meeting_key"] for s in races if os.path.exists(grid_path(year, s["meeting_key"]))}

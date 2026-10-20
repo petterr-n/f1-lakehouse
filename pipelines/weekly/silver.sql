@@ -306,3 +306,32 @@ SELECT
   END AS stage_reached
 FROM parsed
 QUALIFY row_number() OVER (PARTITION BY session_key, driver_number ORDER BY position NULLS LAST) = 1;
+
+-- Car positions, cut to the race itself and reduced to one point per second per car.
+-- ~3.8 samples/s is far more than a map on a website needs; 1/s keeps the movement smooth
+-- and makes the table ~4x smaller.
+CREATE OR REFRESH MATERIALIZED VIEW silver_location (
+  CONSTRAINT has_position EXPECT (x IS NOT NULL AND y IS NOT NULL) ON VIOLATION DROP ROW
+)
+COMMENT 'One position per car per second during the race (from first lap start to the last car home)'
+AS
+WITH race_window AS (
+  -- From the start of the race to 30 s after the last lap was finished
+  SELECT session_key,
+         min(lap_start) AS starts_at,
+         max(timestamp_millis(unix_millis(lap_start) + CAST(coalesce(lap_time_sec, 0) * 1000 AS BIGINT)))
+           + INTERVAL 30 SECONDS AS ends_at
+  FROM silver_laps
+  GROUP BY session_key
+)
+SELECT
+  l.session_key,
+  l.driver_number,
+  date_trunc('second', l.date) AS t,
+  CAST(round(avg(l.x)) AS INT) AS x,
+  CAST(round(avg(l.y)) AS INT) AS y
+FROM bronze_location l
+JOIN race_window w
+  ON  w.session_key = l.session_key
+  AND l.date BETWEEN w.starts_at AND w.ends_at
+GROUP BY l.session_key, l.driver_number, date_trunc('second', l.date);

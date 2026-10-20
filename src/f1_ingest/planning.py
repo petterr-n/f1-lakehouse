@@ -76,3 +76,19 @@ def endpoints_for(session: dict) -> list[tuple[str, str]]:
 def landed_marker_folder(session: dict) -> str:
     """The folder whose file proves a session was landed completely (the last one fetched)."""
     return endpoints_for(session)[-1][1]
+
+# --- Car positions (track map) ------------------------------------------
+# The location endpoint is ~3.8 samples per second per car, ~25k rows per car per race.
+# To keep volume and API calls down it's only fetched for Grand Prix races (not sprints)
+# in the current season.
+
+def wants_location(session: dict, now: datetime) -> bool:
+    """Car positions are fetched for Grand Prix races of the current season only."""
+    return session.get("session_name") == "Race" and session.get("year") == now.year
+
+
+def locations_to_ingest(races: list[dict], landed_keys: set, now: datetime,
+                        settle: timedelta = SETTLE_TIME) -> list[dict]:
+    """Finished current-season Grand Prix races whose car positions haven't been landed yet."""
+    return [s for s in races
+            if wants_location(s, now) and is_finished(s, now, settle) and s["session_key"] not in landed_keys]

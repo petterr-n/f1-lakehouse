@@ -35,6 +35,7 @@ jobs:
             databricks fs cp "dbfs:/Volumes/f1/pipeline/exports/site/$f" web/public/data/ --overwrite
           done
           databricks fs cp -r dbfs:/Volumes/f1/pipeline/exports/site/replay web/public/data/replay --overwrite
+          databricks fs cp -r dbfs:/Volumes/f1/pipeline/exports/site/map web/public/data/map --overwrite
         env:
           DATABRICKS_HOST: ${{ secrets.DATABRICKS_HOST }}
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
