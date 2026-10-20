@@ -240,3 +240,66 @@ for key, rp in replays.items():
 
 print(f"Wrote {len(replays)} replay files to {REPLAY_DIR}: {total / 1024:.0f} KB in total, "
       f"{total / len(replays) / 1024:.0f} KB on average")
+
+# COMMAND ----------
+
+# Track map: one file per race that has enough position data (map/<session_key>.json).
+# Each car's positions are one flat list [x0, y0, x1, y1, ...], one pair every STEP seconds from
+# the start of the race; a gap in the data is null, null. Coordinates are divided by 10
+# (OpenF1 units are ~10 cm), still sub-metre precision, but shorter numbers = smaller file.
+
+MAP_DIR = f"{OUT_DIR}/map"
+os.makedirs(MAP_DIR, exist_ok=True)
+STEP = 2
+
+def q(v):
+    return None if v is None else int(round(v / 10))
+
+# Circuit outline per race
+outlines = {}
+for r in rows(f"SELECT session_key, x, y FROM f1.{SCHEMA}.gold_track_outline ORDER BY session_key, seq"):
+    outlines.setdefault(r.session_key, []).append([q(r.x), q(r.y)])
+
+# When the leader completed each lap, so the map can follow the replay's lap slider
+leader = {}
+for r in rows(f"""
+    SELECT session_key, lap_number, crossed_at
+    FROM f1.{SCHEMA}.gold_race_lap_order
+    WHERE position = 1 AND lap_number > 0
+    ORDER BY session_key, lap_number
+"""):
+    leader.setdefault(r.session_key, []).append((r.lap_number, r.crossed_at))
+
+# One race at a time, so we never hold all positions in memory at once
+map_keys = [r.session_key for r in rows(f"SELECT session_key FROM f1.{SCHEMA}.gold_location_coverage WHERE has_map")]
+sizes = []
+for key in map_keys:
+    frames = rows(f"SELECT driver_id, t, x, y FROM f1.{SCHEMA}.gold_location_frames WHERE session_key = {key}")
+    if not frames or key not in outlines:
+        print(f"map   {key}: skipped (no positions or no outline)")
+        continue
+
+    t0 = min(r.t for r in frames)
+    n = int((max(r.t for r in frames) - t0).total_seconds() // STEP) + 1
+    cars = {}
+    for r in frames:
+        i = int((r.t - t0).total_seconds() // STEP)
+        xy = cars.setdefault(r.driver_id, [None] * (2 * n))
+        xy[2 * i], xy[2 * i + 1] = q(r.x), q(r.y)
+
+    payload = {
+        "session_key": key,
+        "step": STEP,                                   # seconds between positions
+        "outline": outlines[key],                       # [[x, y], ...] in driving order
+        "laps": [[lap, round((ts - t0).total_seconds(), 1)]   # [lap, seconds after the start] when the leader finished it
+                 for lap, ts in leader.get(key, [])],
+        "cars": [{"id": d, "xy": xy} for d, xy in cars.items()],
+    }
+    out = f"{MAP_DIR}/{key}.json"
+    with open(out + ".tmp", "w") as f:
+        json.dump(payload, f, separators=(",", ":"))
+    os.replace(out + ".tmp", out)
+    sizes.append(os.path.getsize(out))
+
+print(f"Wrote {len(sizes)} map files to {MAP_DIR}: {sum(sizes) / 1024 / 1024:.1f} MB in total, "
+      f"{sum(sizes) / len(sizes) / 1024:.0f} KB on average")

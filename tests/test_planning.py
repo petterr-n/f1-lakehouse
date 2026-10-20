@@ -3,7 +3,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from f1_ingest.planning import (
-    is_finished, meetings_needing_grid, parse_years, sessions_to_ingest,
+    is_finished, locations_to_ingest, meetings_needing_grid, parse_years, sessions_to_ingest,
+    wants_location,
 )
 
 # A fixed "now" makes the tests give the same result every time they run
@@ -110,3 +111,31 @@ def test_race_control_is_fetched_last_as_the_landed_marker(session_type):
     session = {"session_type": session_type}
     assert endpoints_for(session)[-1] == ("race_control", "race_control")
     assert landed_marker_folder(session) == "race_control"
+
+# --- car positions (track map) -------------------------------------------
+
+def race(key, name="Race", year=2026, ended_hours_ago=100):
+    s = session(key, meeting=key, ended_hours_ago=ended_hours_ago)
+    return {**s, "session_name": name, "year": year}
+
+
+def test_location_only_for_grand_prix_races():
+    assert wants_location(race(1, name="Race"), NOW)
+    assert not wants_location(race(2, name="Sprint"), NOW)
+
+
+def test_location_only_for_the_current_season():
+    assert wants_location(race(1, year=2026), NOW)
+    assert not wants_location(race(2, year=2025), NOW)
+
+
+def test_locations_to_ingest_skips_landed_unfinished_sprints_and_old_seasons():
+    races = [
+        race(1),                         # finished, not landed      -> ingest
+        race(2),                         # already landed
+        race(3, ended_hours_ago=2),      # finished too recently
+        race(4, name="Sprint"),          # sprint
+        race(5, year=2025),              # last season
+    ]
+    result = locations_to_ingest(races, landed_keys={2}, now=NOW)
+    assert [s["session_key"] for s in result] == [1]

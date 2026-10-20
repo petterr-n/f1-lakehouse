@@ -5,10 +5,14 @@
 // that (it would restart on every tick), so it owns its own DOM: one row per driver that
 // stays in place and slides to its new position with a CSS transform.
 
-import type { Neutralisation, ReplayEntry, ReplayFile } from "./types";
+import type { MapFile, Neutralisation, ReplayEntry, ReplayFile } from "./types";
+import { createTrackMap, loadMap } from "./trackmap";
 import { colour, esc, lapTime } from "./format";
 
-const SPEEDS = [0.5, 1, 2, 4]; // laps per second
+// Playback speed as a multiple of real race time: at 20x a 95-second lap takes ~5 s.
+// Each lap gets its own duration, so safety car laps play slower, just like in the race.
+const SPEEDS = [5, 10, 20, 50, 100];
+const DEFAULT_SPEED = 20;
 
 const TYRE_NAMES: Record<string, string> = { S: "Soft", M: "Medium", H: "Hard", I: "Intermediate", W: "Wet" };
 const FLAG_TEXT: Record<Neutralisation["kind"], string> = {
@@ -54,14 +58,15 @@ export function mountReplay(root: HTMLElement, key: number): void {
   };
   root.innerHTML = `<p class="replay-msg">Loading replay…</p>`;
 
-  load(key).then((data) => {
+  // The map file is optional: only current-season races with enough position data have one
+  Promise.all([load(key), loadMap(key)]).then(([data, map]) => {
     if (!alive || !root.isConnected) return;
     if (!data || data.laps.length < 2) {
       root.innerHTML = `<p class="replay-msg">No lap data for this race.</p>`;
       return;
     }
-    if (!state || state.key !== key) state = { key, index: 0, speed: 1, playing: false };
-    stopCurrent = start(root, data, state);
+    if (!state || state.key !== key) state = { key, index: 0, speed: DEFAULT_SPEED, playing: false };
+    stopCurrent = start(root, data, state, map);
   });
 }
 
@@ -185,7 +190,7 @@ function prepare(data: ReplayFile) {
 
 // ---------- The player ----------
 
-function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
+function start(root: HTMLElement, data: ReplayFile, st: PlayState, mapData: MapFile | null): () => void {
   const { n, last, finalLap, frame, flagAt, periods } = prepare(data);
 
   // Where each period sits on the slider, as a percentage of the race
@@ -217,11 +222,13 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
         <label class="replay-speed">
           <span class="visually-hidden">Playback speed</span>
           <select>
-            ${SPEEDS.map((s) => `<option value="${s}">${s} lap${s === 1 ? "" : "s"}/s</option>`).join("")}
+            ${SPEEDS.map((s) => `<option value="${s}">${s}× speed</option>`).join("")}
           </select>
         </label>
       </div>
       <div class="replay-flag" aria-live="polite" hidden></div>
+      <div class="replay-body ${mapData ? "has-map" : ""}">
+      ${mapData ? `<figure class="replay-map"><div class="track"></div><figcaption>Positions from OpenF1, every ${mapData.step} s</figcaption></figure>` : ""}
       <ol class="replay-tower" style="--rows:${n}">
         ${data.drivers
           .map(
@@ -241,6 +248,7 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
           )
           .join("")}
       </ol>
+      </div>
     </div>`;
 
   const play = root.querySelector<HTMLButtonElement>(".replay-play")!;
@@ -252,10 +260,26 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
   const rows = [...root.querySelectorAll<HTMLElement>(".rp-row")];
   let prevPos: number[] | null = null;
   let timer: number | undefined;
+  // Pole sitter = first car on the grid (lap 0); the start line goes where that car stood
+  const grid = data.laps.find((l) => l.lap === 0);
+  const poleId = grid?.order[0] ? data.drivers[grid.order[0][0]].id : undefined;
+  const map = mapData
+    ? createTrackMap(root.querySelector<HTMLElement>(".replay-map .track")!, mapData, data.drivers, poleId)
+    : null;
 
+  if (!SPEEDS.includes(st.speed)) st.speed = DEFAULT_SPEED;
   speed.value = String(st.speed);
 
-  function draw(): void {
+  // How long a lap took in the race: the leader's lap time (the grid → lap 1 uses lap 1)
+  const lapSeconds = (i: number) => {
+    const t = data.laps[i]?.order[0]?.[3];
+    return t && t > 20 ? t : 90;
+  };
+
+  let hiddenOnMap = new Set<string>();
+
+  // ms = how long to animate the map to this lap (0 = jump, -1 = leave the map alone)
+  function draw(ms = 0): void {
     const shown = frame(st.index);
     const lap = data.laps[st.index].lap;
     lapNo.textContent = lap === 0 ? "Grid" : String(lap);
@@ -297,24 +321,43 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
       delta.className = `rp-delta ${moved > 0 ? "up" : moved < 0 ? "down" : ""}`;
     }
     prevPos = pos;
+
+    // Track map: put the cars where they were when the leader finished this lap; retired cars disappear
+    hiddenOnMap = new Set(shown.filter((s) => s.out).map((s) => data.drivers[s.driver].id));
+    if (map && ms >= 0) map.goTo(map.timeOfLap(lap), ms, hiddenOnMap);
   }
 
   function setPlaying(on: boolean): void {
     st.playing = on && st.index < last;
     play.textContent = st.playing ? "❚❚ Pause" : st.index >= last ? "↺ Replay" : "▶ Play";
     play.setAttribute("aria-label", st.playing ? "Pause" : "Play");
-    window.clearInterval(timer);
-    if (st.playing) {
-      const ms = 1000 / st.speed;
-      tower.style.setProperty("--dur", `${Math.min(700, ms * 0.8)}ms`);
-      timer = window.setInterval(() => {
-        if (st.index < last) {
-          st.index++;
-          draw();
-        }
-        if (st.index >= last) setPlaying(false); // also covers dragging the slider to the end mid-play
-      }, ms);
+    window.clearTimeout(timer);
+    if (st.playing) playNextLap();
+    else map?.pause(); // freeze the cars where they are, mid-lap if need be
+  }
+
+  // Play one lap: the map drives through it in (lap time / speed), then the tower shows the order
+  // at the end of it. One timeout per lap, because every lap has its own length.
+  function playNextLap(): void {
+    if (st.index >= last) return setPlaying(false);
+    const full = (lapSeconds(st.index + 1) / st.speed) * 1000;
+    let ms = full;
+    if (map) {
+      // Resuming after a pause: the cars may already be part-way round this lap,
+      // so only play the part that's left, from where they stopped
+      const from = map.timeOfLap(data.laps[st.index].lap);
+      const to = map.timeOfLap(data.laps[st.index + 1].lap);
+      const done = to > from ? Math.min(1, Math.max(0, (map.time() - from) / (to - from))) : 0;
+      ms = full * (1 - done);
+      map.goTo(to, ms, hiddenOnMap);
     }
+    tower.style.setProperty("--dur", `${Math.min(700, full * 0.6)}ms`);
+    timer = window.setTimeout(() => {
+      st.index++;
+      draw(-1); // the map is already there
+      if (st.index >= last) setPlaying(false);
+      else playNextLap();
+    }, ms);
   }
 
   play.addEventListener("click", () => {
@@ -329,13 +372,17 @@ function start(root: HTMLElement, data: ReplayFile, st: PlayState): () => void {
     st.index = Number(slider.value);
     prevPos = null; // jumping: no ▲▼ arrows
     draw();
+    if (st.playing) setPlaying(true); // carry on playing from the new lap
   });
   speed.addEventListener("change", () => {
     st.speed = Number(speed.value);
-    if (st.playing) setPlaying(true);
+    if (st.playing) setPlaying(true); // carries on from where the cars are, at the new speed
   });
 
   draw();
   setPlaying(st.playing);
-  return () => window.clearInterval(timer);
+  return () => {
+    window.clearTimeout(timer);
+    map?.destroy();
+  };
 }

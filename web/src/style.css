@@ -415,6 +415,32 @@ button { font: inherit; color: inherit; cursor: pointer; }
   .rp-row { transition: none; }
 }
 
+/* Level 3: track map next to the tower */
+.replay-body.has-map { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 440px); align-items: start; }
+.replay-body.has-map .replay-tower { grid-column: 1; grid-row: 1; }
+.replay-map {
+  grid-column: 2; grid-row: 1; margin: 0; padding: 16px;
+  position: sticky; top: 16px; border-left: 1px solid var(--line);
+}
+.replay-map figcaption { margin-top: 6px; font-size: 0.75rem; color: var(--muted); text-align: center; }
+.track-svg { display: block; width: 100%; height: auto; max-height: 70vh; overflow: visible; }
+.track-edge { fill: none; stroke: var(--line); stroke-linejoin: round; }
+.track-line { fill: none; stroke: var(--faint); stroke-linejoin: round; }
+.finish-base { stroke: #1a1a1a; }
+.finish-check { stroke: #fff; }
+.car circle { fill: var(--team); stroke: var(--bg-raised); stroke-width: 0.5px; vector-effect: non-scaling-stroke; }
+.car text {
+  font-family: var(--body); font-weight: 700; fill: var(--text);
+  paint-order: stroke; stroke: var(--bg-raised); stroke-width: 3px; stroke-linejoin: round; vector-effect: non-scaling-stroke;
+}
+
+@media (max-width: 900px) {
+  .replay-body.has-map { grid-template-columns: minmax(0, 1fr); }
+  .replay-map { grid-column: 1; grid-row: 1; position: static; border-left: 0; border-bottom: 1px solid var(--line); padding: 12px; }
+  .replay-body.has-map .replay-tower { grid-row: 2; }
+  .track-svg { max-height: 360px; }
+}
+
 /* Small phones: drop the grid column so position, time and points always fit */
 @media (max-width: 380px) {
   .hide-xs { display: none; }
