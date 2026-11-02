@@ -84,18 +84,62 @@ FROM latest;
 
 
 CREATE OR REFRESH MATERIALIZED VIEW silver_session_drivers (
-  CONSTRAINT has_driver_id EXPECT (driver_id IS NOT NULL AND driver_id <> '') ON VIOLATION FAIL UPDATE
+  CONSTRAINT has_driver_id EXPECT (driver_id IS NOT NULL AND driver_id <> '') ON VIOLATION FAIL UPDATE,
+  -- warn only: counts rows where OpenF1 left out the name and we borrowed it (see `filled`)
+  CONSTRAINT name_from_source EXPECT (NOT name_borrowed)
 )
 AS
+WITH latest AS (
+  SELECT * FROM bronze_drivers
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY session_key, driver_number
+                             ORDER BY _ingested_at DESC) = 1
+),
+-- OpenF1 sometimes lists a stand-in driver with no name, team or colour
+-- (e.g. #50 HIR in session 11404). Borrow those fields from the nearest session
+-- in the same season where the same car number has them.
+named AS (
+  SELECT year, driver_number, session_key,
+         first_name, last_name, team_name, team_colour, country_code
+  FROM latest
+  WHERE last_name IS NOT NULL
+),
+filled AS (
+  SELECT l.*,
+         l.last_name IS NULL AS name_borrowed,
+         n.first_name   AS n_first_name,
+         n.last_name    AS n_last_name,
+         n.team_name    AS n_team_name,
+         n.team_colour  AS n_team_colour,
+         n.country_code AS n_country_code
+  FROM latest l
+  LEFT JOIN named n
+    ON  l.last_name IS NULL
+    AND n.year = l.year
+    AND n.driver_number = l.driver_number
+  QUALIFY ROW_NUMBER() OVER (PARTITION BY l.session_key, l.driver_number
+                             ORDER BY abs(n.session_key - l.session_key)) = 1
+),
+clean AS (
+  SELECT
+    session_key, meeting_key, year, driver_number, name_acronym,
+    coalesce(first_name,   n_first_name)   AS first_name,
+    coalesce(last_name,    n_last_name)    AS last_name,
+    coalesce(team_name,    n_team_name)    AS team_name,
+    coalesce(team_colour,  n_team_colour)  AS team_colour,
+    coalesce(country_code, n_country_code) AS country_code,
+    name_borrowed
+  FROM filled
+)
 SELECT
-  regexp_replace(lower(concat_ws(' ', first_name, last_name)), ' ', '_') AS driver_id,
+  -- name-based id as before; the acronym is the last resort if no session has the name
+  coalesce(nullif(regexp_replace(lower(concat_ws(' ', first_name, last_name)), ' ', '_'), ''),
+           lower(name_acronym)) AS driver_id,
   session_key, meeting_key, year, driver_number,
   first_name, last_name, name_acronym, team_name,
   concat('#', team_colour) AS team_colour,
-  country_code
-FROM bronze_drivers
-QUALIFY ROW_NUMBER() OVER (PARTITION BY session_key, driver_number
-                           ORDER BY _ingested_at DESC) = 1;
+  country_code,
+  name_borrowed
+FROM clean;
 
 
 CREATE OR REFRESH MATERIALIZED VIEW silver_starting_grid (
