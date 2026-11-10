@@ -6,18 +6,7 @@ Live site: https://petterr-n.github.io/f1-lakehouse/
 
 ## How it works
 
-```mermaid
-flowchart LR
-    api([OpenF1 API]) --> ingest
-
-    subgraph Databricks
-        ingest[ingest] --> landing[(raw JSON)]
-        landing --> bronze --> silver --> gold
-        gold --> validate --> export
-    end
-
-    export --> site[GitHub Pages]
-```
+![Architecture](docs/architecture.png)
 
 A job runs every Monday after race weekends: ingest new sessions, run the pipeline, validate, export. If validation fails the export is skipped, so the site just keeps last week's data.
 
